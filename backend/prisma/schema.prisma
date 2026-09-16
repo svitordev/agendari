@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTENTICAÇÃO E USUÁRIOS
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  role      Role     @default(PROFESSIONAL)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relações
+  professional   Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  professionalId String?       @unique
+
+  @@map("users")
+}
+
+enum Role {
+  ADMIN
+  PROFESSIONAL
+  CUSTOMER
+}
+
+// ============================================
+// PROFISSIONAIS (Multi-tenant ready)
+// ============================================
+
+model Professional {
+  id          String   @id @default(cuid())
+  slug        String   @unique // Link público: /professional/jessicasantana
+  name        String
+  bio         String?  @db.Text
+  avatarUrl   String?
+  themeColors Json? // {"primary": "#FF69B4", "secondary": "#333"} - Customização visual SaaS
+  instagram   String?
+  facebook    String?
+  whatsapp    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relações
+  user                   User?
+  services               Service[]
+  appointments           Appointment[]
+  availabilities         Availability[]
+  availabilityExceptions AvailabilityException[]
+
+  @@map("professionals")
+}
+
+// ============================================
+// SERVIÇOS OFERECIDOS
+// ============================================
+
+model Service {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?  @db.Text
+  durationMinutes Int // Ex: 60, 90, 120
+  price           Float // Ex: 85.90
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relações
+  professionalId String
+  professional   Professional  @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  appointments   Appointment[]
+
+  @@map("services")
+}
+
+// ============================================
+// DISPONIBILIDADE SEMANAL — REFAZER
+// ============================================
+
+// A tabela original `Availability` suportava apenas um período por dia.
+// Para atender ao requisito de múltiplos períodos e pausas, a estrutura é
+// dividida em duas tabelas:
+//   * Availability – define o dia da semana que está ativo.
+//   * AvailabilityPeriod – cada intervalo horário dentro do dia.
+
+model Availability {
+  id        String   @id @default(cuid())
+  dayOfWeek Int
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  periods AvailabilityPeriod[] @relation("AvailabilityPeriods")
+
+  @@unique([professionalId, dayOfWeek])
+  @@map("availabilities")
+}
+
+model AvailabilityPeriod {
+  id        String   @id @default(cuid())
+  startTime String
+  endTime   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  availabilityId String
+
+  availability Availability @relation("AvailabilityPeriods", fields: [availabilityId], references: [id], onDelete: Cascade)
+
+  // Impede dois períodos com o mesmo horário inicial no mesmo dia.
+  @@unique([availabilityId, startTime])
+  @@map("availability_periods")
+}
+
+// EXCEÇÃO/ BLOQUEIO DE DATA – PARA PÁGINA DO ADMINISTRADOR E RENDERIZAÇÃO
+model AvailabilityException {
+  id             String       @id @default(cuid())
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id])
+  date           DateTime // Data específica (sem hora)
+  allDay         Boolean      @default(false) // bloco completo do dia
+  startTime      String? // se não for allDay, começa neste horário
+  endTime        String? // termina neste horário
+  reason         String? // descrição opcional (ex.: "Consulta médica")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([professionalId, date, startTime, endTime])
+  @@map("availability_exceptions")
+}
+
+// ============================================
+// CLIENTES
+// ============================================
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String // WhatsApp/Telefone
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relações
+  appointments Appointment[]
+
+  @@map("customers")
+}
+
+// ============================================
+// AGENDAMENTOS
+// ============================================
+
+model Appointment {
+  id                 String                  @id @default(cuid())
+  date               DateTime // Data/hora de início do agendamento
+  status             AppointmentStatus       @default(PENDING)
+  notes              String?                 @db.Text // Observações do cliente/profissional
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  cancellationReason String?                 @db.Text
+  cancelledBy        AppointmentCancelledBy?
+  cancelledAt        DateTime?
+
+  // Relações
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id])
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  // Índices para performance
+  @@index([professionalId, date])
+  @@index([status, date])
+  @@map("appointments")
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum AppointmentCancelledBy {
+  PROFESSIONAL
+  CUSTOMER
+}
