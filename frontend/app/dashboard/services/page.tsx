@@ -262,7 +262,7 @@ export default function ServicesPage() {
           }
         }}
       >
-        <SheetContent className="overflow-y-auto p-6 sm:max-w-[425px]">
+        <SheetContent className="overflow-y-auto p-6 sm:max-w-106.25">
           <SheetHeader className="mb-4">
             <SheetTitle>
               {editingService ? "Editar Serviço" : "Novo Serviço"}
