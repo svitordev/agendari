@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 2026-09-15 — Registro Público: role removido do RegisterDto
+
+### Correção de Segurança
+- Removido campo `role` de `RegisterDto` — cliente não escolhe mais role
+- `AuthService.register()` hardcoded `role: 'PROFESSIONAL'`
+- Requisições com `role` no body rejeitadas com 400 Bad Request (ValidationPipe whitelist)
+- Zero referências a `dto.role` no código backend
+
+### Testes Executados
+- CASO 1 (sem role): ✅ PASSOU — role = "PROFESSIONAL"
+- CASO 2 (role=ADMIN): ✅ PASSOU — 400 "property role should not exist"
+- CASO 3 (role=CUSTOMER): ✅ PASSOU — 400 "property role should not exist"
+- CASO 4 (role=PROFESSIONAL): ✅ PASSOU — 400 "property role should not exist"
+
 ## 2026-08-27 — Auditoria Completa da Base de Código
 
 ### Análise Realizada
