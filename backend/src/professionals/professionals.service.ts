@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 import { CreateProfessionalDto } from './dto/create-professional.dto';
 import { UpdateProfessionalProfileDto } from './dto/update-professional-profile.dto';
+import { FindProfessionalsDto } from './dto/find-professionals.dto';
 
 @Injectable()
 export class ProfessionalsService {
@@ -39,8 +40,14 @@ export class ProfessionalsService {
     });
   }
 
-  async findAll() {
+  async findAll(query?: FindProfessionalsDto) {
+    const take = query?.limit ?? 20;
+    const skip = query?.offset ?? 0;
+
     return this.prisma.professional.findMany({
+      take,
+      skip,
+      orderBy: { slug: 'asc' },
       include: {
         services: {
           where: {

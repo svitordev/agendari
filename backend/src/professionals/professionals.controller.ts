@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +13,7 @@ import {
 import { ProfessionalsService } from './professionals.service';
 import { CreateProfessionalDto } from './dto/create-professional.dto';
 import { UpdateProfessionalProfileDto } from './dto/update-professional-profile.dto';
+import { FindProfessionalsDto } from './dto/find-professionals.dto';
 
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 
@@ -28,8 +30,8 @@ export class ProfessionalsController {
   }
 
   @Get()
-  getAll() {
-    return this.professionalsService.findAll();
+  getAll(@Query() query: FindProfessionalsDto) {
+    return this.professionalsService.findAll(query);
   }
 
   /*
