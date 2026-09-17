@@ -91,5 +91,5 @@ cd frontend && npm run dev
 ### Observações Importantes
 - Backend usa `strictNullChecks: false` — **não alterar automaticamente** (migração planejada)
 - `.env` está em `.gitignore` — **nunca commitar**
-- JWT_SECRET possui fallback hardcoded — **sempre definir em produção**
+- JWT_SECRET é **obrigatório** — `requireJwtSecret()` em `main.ts` falha se ausente/ vazio
 - Documentação detalhada: ver `PROJETO.md` e `docs/ARQUITETURA.md`

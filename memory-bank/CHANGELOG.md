@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## 2026-09-16 — JWT_SECRET: remoção do fallback hardcoded
+
+### Correção de Segurança
+- Criada função centralizada `requireJwtSecret()` em `backend/src/auth/jwt-validation.ts`
+- `JWT_SECRET` agora é **obrigatório** — ausência, valor vazio ou somente espaços impedem inicialização
+- `auth.module.ts` e `jwt.strategy.ts` usam **exatamente a mesma função** `requireJwtSecret()`
+- Removido fallback `'pex_agendamento_secret_key_2026_change_me_in_production'` de 2 arquivos
+- Gate em `main.ts` após `dotenv.config()` — lança Error antes do bootstrap
+- Criado `backend/.env.example` com variáveis documentadas (placeholder fictício)
+- `.gitignore` atualizado para não ignorar `.env.example`
+- Tokens antigos só serão rejeitados se o segredo real mudar
+
+### Arquivos Modificados
+- `backend/src/main.ts` — import + gate `requireJwtSecret()`
+- `backend/src/auth/auth.module.ts` — `secret: requireJwtSecret()` no useFactory
+- `backend/src/auth/jwt.strategy.ts` — `secretOrKey: requireJwtSecret()`
+- `backend/.env.example` — criado (não contém segredo real)
+- `.gitignore` (raiz) — exceção `!.env.example`
+- `AGENTS.md` — risco resolvido
+- `docs/ARQUITETURA.md` — referência atualizada
+- `PROJETO.md` — A1 marcado como resolvido
+- `README.md` — nota sobre fallback removida
+
+### Testes Executados
+- CASO A (undefined): ✅ PASSOU — throw Error
+- CASO B (vazio): ✅ PASSOU — throw Error
+- CASO C (só espaços): ✅ PASSOU — throw Error
+- CASO D (válido): ✅ PASSOU — retorna valor
+
 ## 2026-09-15 — Registro Público: role removido do RegisterDto
 
 ### Correção de Segurança

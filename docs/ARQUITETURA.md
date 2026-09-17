@@ -23,7 +23,7 @@ Auditoria completa realizada em 2026-08-27 (~70 arquivos verificados).
 
 ### Autenticação
 - JWTStrategy (@nestjs/passport) com Bearer token
-- `secretOrKey: process.env.JWT_SECRET || fallback_hardcoded` — ⚠️ ver PROJETO.md A1
+- `secretOrKey: requireJwtSecret()` — ✅ resolvido (2026-09-16) — função centralizada em `jwt-validation.ts`
 - ExpiresIn: 24h
 - req.user: `{ userId, email, role, professionalId?, firstName, lastName }`
 

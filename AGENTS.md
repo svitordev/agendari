@@ -98,13 +98,19 @@ NÃO é obrigado atualizar `.md` para pequenas edições de código
 }
 ```
 
-### Risco Confirmado — JWT_SECRET
-Arquivo `backend/src/auth/jwt.strategy.ts:12`:
+### JWT_SECRET — Obrigatório
+Arquivo `backend/src/auth/jwt-validation.ts`:
 ```ts
-secretOrKey: process.env.JWT_SECRET || 'pex_agendamento_secret_key_2026_change_me_in_production'
+export function requireJwtSecret(): string {
+  const value = process.env.JWT_SECRET;
+  if (!value || value.trim() === '') {
+    throw new Error('JWT_SECRET não está definido ou está vazio.');
+  }
+  return value;
+}
 ```
-- Se `.env` não estiver presente, a app usa um segredo **hardcoded e previsível**.
-- **Melhoria planejada:** fazer a aplicação falhar ao iniciar se JWT_SECRET não estiver configurado.
+- Se `.env` não estiver presente ou estiver vazio, a aplicação **falha** ao iniciar.
+- `auth.module.ts` e `jwt.strategy.ts` usam a mesma função `requireJwtSecret()`.
 
 ## Prisma — Models Confirmados (8 models, 3 enums)
 

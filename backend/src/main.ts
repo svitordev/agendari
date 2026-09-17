@@ -2,8 +2,12 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import * as dotenv from 'dotenv';
+import { requireJwtSecret } from './auth/jwt-validation';
 
 dotenv.config();
+
+// Validação obrigatória antes do bootstrap
+requireJwtSecret();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

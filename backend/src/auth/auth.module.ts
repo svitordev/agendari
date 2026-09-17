@@ -4,6 +4,7 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { requireJwtSecret } from './jwt-validation';
 
 @Global()
 @Module({
@@ -11,7 +12,7 @@ import { JwtStrategy } from './jwt.strategy';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       useFactory: () => ({
-        secret: process.env.JWT_SECRET || 'pex_agendamento_secret_key_2026_change_me_in_production',
+        secret: requireJwtSecret(),
         signOptions: { expiresIn: '24h' },
       }),
     }),

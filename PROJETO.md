@@ -78,7 +78,7 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 
 | # | Problema | Arquivo | Descrição |
 |---|---|---|---|
-| A1 | JWT_SECRET hardcoded fallback | `jwt.strategy.ts:12` | Se `.env` ausente, segredo previsível é usado |
+| A1 | ~~JWT_SECRET hardcoded fallback~~ | `jwt-validation.ts:1` → `auth.module.ts:14` + `jwt.strategy.ts:12` | ✅ **RESOLVIDO** — `requireJwtSecret()` lançada em `main.ts` antes do bootstrap |
 | A2 | XSS via localStorage | `lib/api.ts:12` + `hooks/useAuth.ts:24` | JWT em localStorage é lido por qualquer script JS — vulnerável a XSS |
 | A3 | POST /professionals sem guard | `professionals.controller.ts:22-28` | Criação pública de profissionais |
 | A4 | Frontend serviços busca global | `services/page.tsx:76` | `api.get('/services')` sem filtrar por professionalId — retorna serviços de todos |
@@ -115,7 +115,7 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 
 ## Melhorias Planejadas
 1. Migrar `strictNullChecks: false` → `true` no backend (migração controlada futura)
-2. Fazer app falhar se JWT_SECRET não estiver definido
+2. ~~Fazer app falhar se JWT_SECRET não estiver definido~~ ✅ RESOLVIDO (2026-09-16)
 3. OTP/token para verificação de posse de telefone
 4. HTTP-only cookie ou memória efêmera para JWT (em vez de localStorage)
 5. Rate limiting em rotas sensíveis
