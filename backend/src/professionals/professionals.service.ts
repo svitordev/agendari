@@ -289,10 +289,11 @@ export class ProfessionalsService {
         /*
          * Se themeColors vier null ou undefined,
          * não tentamos gravar JSON inválido.
+         * Espalhar para garantir plain object (Prisma não aceita instâncias de classe).
          */
         ...(dto.themeColors
           ? {
-              themeColors: dto.themeColors,
+              themeColors: { ...dto.themeColors },
             }
           : {}),
       },

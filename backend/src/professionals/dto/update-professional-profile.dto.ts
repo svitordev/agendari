@@ -3,7 +3,10 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ThemeColorsDto } from './theme-colors.dto';
 
 export class UpdateProfessionalProfileDto {
   @IsString()
@@ -32,7 +35,9 @@ export class UpdateProfessionalProfileDto {
   @IsOptional()
   whatsapp?: string | null;
 
-  @IsObject()
   @IsOptional()
-  themeColors?: Record<string, string> | null;
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ThemeColorsDto)
+  themeColors?: ThemeColorsDto | null;
 }
