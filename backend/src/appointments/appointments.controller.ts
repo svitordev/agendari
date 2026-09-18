@@ -10,6 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 
 import { AppointmentsService } from './appointments.service';
 
@@ -20,6 +21,7 @@ import { CancelPublicAppointmentDto } from './dto/cancel-public-appointment.dto'
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 
 @Controller('appointments')
+@Throttle({ default: { limit: 30, ttl: 60000 } }) // 30/min (default para appointments)
 export class AppointmentsController {
   constructor(
     private readonly appointmentsService: AppointmentsService,
