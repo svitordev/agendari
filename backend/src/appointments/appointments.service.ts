@@ -538,7 +538,12 @@ export class AppointmentsService {
     });
   }
 
-  async findByPhone(phone: string, professionalId?: string) {
+  async findByPhone(
+    phone: string,
+    professionalId?: string,
+    limit?: number,
+    offset?: number,
+  ) {
     const normalized = this.normalizePhone(phone);
 
     if (!normalized || normalized.length < 10) {
@@ -583,6 +588,9 @@ export class AppointmentsService {
 
     const customerIds = customers.map((customer) => customer.id);
 
+    const take = limit ?? 50;
+    const skip = offset ?? 0;
+
     return this.prisma.appointment.findMany({
       where: {
         customerId: {
@@ -605,6 +613,9 @@ export class AppointmentsService {
       orderBy: {
         date: 'desc',
       },
+
+      take,
+      skip,
     });
   }
 

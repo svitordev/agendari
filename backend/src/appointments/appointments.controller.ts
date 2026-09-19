@@ -18,6 +18,8 @@ import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
 import { CancelPublicAppointmentDto } from './dto/cancel-public-appointment.dto';
 
+import { FindByPhoneQueryDto } from './dto/find-by-phone-query.dto';
+
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 
 @Controller('appointments')
@@ -112,15 +114,14 @@ export class AppointmentsController {
 
   @Get('by-phone')
   getByPhone(
-    @Query('phone')
-    phone: string,
-
-    @Query('professionalId')
-    professionalId?: string,
+    @Query('phone') phone: string,
+    @Query() query: FindByPhoneQueryDto,
   ) {
     return this.appointmentsService.findByPhone(
       phone,
-      professionalId,
+      query.professionalId,
+      query.limit,
+      query.offset,
     );
   }
 
