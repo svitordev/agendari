@@ -4,14 +4,12 @@ import {
   Get,
   Param,
   Patch,
-  Post,
   Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 
 import { ProfessionalsService } from './professionals.service';
-import { CreateProfessionalDto } from './dto/create-professional.dto';
 import { UpdateProfessionalProfileDto } from './dto/update-professional-profile.dto';
 import { FindProfessionalsDto } from './dto/find-professionals.dto';
 
@@ -20,14 +18,6 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 @Controller('professionals')
 export class ProfessionalsController {
   constructor(private readonly professionalsService: ProfessionalsService) {}
-
-  @Post()
-  create(
-    @Body()
-    dto: CreateProfessionalDto,
-  ) {
-    return this.professionalsService.create(dto);
-  }
 
   @Get()
   getAll(@Query() query: FindProfessionalsDto) {
