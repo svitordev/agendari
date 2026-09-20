@@ -1,5 +1,113 @@
 # CHANGELOG
 
+## 2026-09-19 — Correção pré-deploy: endpoints públicos removidos + validação de senha
+
+### Correção — C1: RegisterDto mínimo de senha
+- **Problema**: `RegisterDto` sem validação de tamanho de senha — aceitava 1 caractere
+- **Correção**: Adicionado `@MinLength(8)` em `password`
+- **Testes**: 7/7 RegisterDto validation tests passando
+
+### Correção — C2: POST /professionals público removido
+- **Problema**: `POST /professionals` público sem uso no MVP
+- **Correção**: Removido `@Post()` create do ProfessionalsController
+- **Preservado**: `ProfessionalsService.create` e `CreateProfessionalDto` para onboarding futuro
+- **Testes**: 28/28 passando (3 novos supertest HTTP + 25 existentes)
+
+### Correção — C3: POST /auth/register público removido
+- **Problema**: `POST /auth/register` público sem uso no MVP — clientes sem conta
+- **Correção**: Removido `@Post('register')` + import `RegisterDto` do AuthController
+- **Preservado**: `AuthService.register()`, `RegisterDto`, `@MinLength(8)` para onboarding futuro
+- **Preservado**: `POST /auth/login` com `@Throttle({ default: { limit: 10, ttl: 60000 } })` intacto
+- **Preservado**: `GET /auth/profile` com JwtAuthGuard intacto
+- **Testes**: 2/2 auth controller (register 404 + login 201) + 7/7 RegisterDto + 4/4 throttler guard + clean tsc
+
+### Decisão — Paginação do dashboard POST_DEPLOY
+- `findByProfessional()` sem take/sip — dashboard calcula TUDO no client
+- `take=50` quebraria contagens/histórico
+- `findAll()` sem consumidor — código legado/interno
+- Decisão: monitorar crescimento e implementar paginação/filtros server-side quando o volume justificar
+
+### Auditoria pré-deploy — SEC-005, SEC-006, SEC-007, SEC-001
+- **SEC-005** `GET /services/professional/:professionalId` → INTENTIONAL_PUBLIC_ENDPOINT
+  - Página /professional/[slug] precisa dos serviços ativos do profissional
+  - Retorna apenas: id, name, description, durationMinutes, price, isActive
+  - Não expõe email, password, ou dados privados
+- **SEC-006** `GET /professionals` → FIXED (fa6cc2d)
+  - DTO FindProfessionalsDto com @Min(1)/@Max(100)/@Type(() => Number)/@IsInt()
+  - take = limit ?? 20, skip = offset ?? 0
+  - 10/10 testes DTO + 6/6 service passando
+  - R3 (GET /professionals sem paginação) corresponde ao mesmo fixing — não duplicar
+- **SEC-007** `GET /professionals/slug/:slug` expõe email → OBSOLETE (sem commit de correção)
+  - findOneBySlug() no commit original 2cb2695 já não incluía relation User
+  - Nenhum commit posterior alterou o include de findOneBySlug
+  - O finding antigo foi baseado em suposição — não reprodutível
+- **SEC-001** `GET /professionals/:id` sem ownership → DEFERRED
+  - @UseGuards(JwtAuthGuard) protege a rota
+  - findOneById(id) aceita QUALQUER id arbitrário
+  - Inclui user (email, firstName, lastName, role, id)
+  - Professional A autenticado pode consultar dados completos de Professional B
+  - Post-deploy: adicionar ownership check ou classificar como público
+
+## 2026-09-18 — SEC-003: findByPhone pagination com validação estrita
+
+### Correção de Segurança — SEC-003 (iteração 3)
+- **Problema da iteração 1**: `parseInt(queryLimit, 10)` aceitava strings como `"10abc"` → `10`, `limit=-1` → take=-1 → Prisma retorna TUDO (DoS)
+- **Problema da iteração 2**: `@Transform(({ value }) => parseInt(value, 10))` rejeitava `"1.5"` mas aceitava `"10abc"` e `"50.9"`
+- **Correção final** (padrão do projeto `@Type(() => Number)`):
+  - Criado `FindByPhoneQueryDto` com 3 campos: `professionalId`, `limit`, `offset`
+  - `professionalId` opcional (`@IsString()`) — NÃO concede autorização
+  - `limit` opcional (`@Type(() => Number)` + `@IsInt()` + `@Min(1)` + `@Max(100)`)
+  - `offset` opcional (`@Type(() => Number)` + `@IsInt()` + `@Min(0)`)
+  - `@Type(() => Number)` rejeita: `"10abc"` → 400, `"1.5"` → 400, `"50.9"` → 400
+  - Controller usa `@Query() query: FindByPhoneQueryDto` — DTO representa query completa
+  - `professionalId` continua OPCIONAL — contrato não alterado
+  - Service usa `??` defaults: `take = limit ?? 50`, `skip = offset ?? 0`
+- **Testes**: 20/20 DTO + 6/6 service
+  - `{}` → ✅ OK
+  - `{ limit: "10" }` → ✅ 10 (typeof number)
+  - `{ limit: "100" }` → ✅ OK
+  - `{ limit: "101" }` → ❌ 400
+  - `{ limit: "10abc" }` → ❌ 400 (rejeitado)
+  - `{ limit: "1.5" }` → ❌ 400
+  - `{ offset: "20" }` → ✅ OK
+  - `{ campoExtra: "x" }` → ❌ 400 (forbidNonWhitelisted)
+  - `{ professionalId: "abc" }` → ✅ OK
+  - `{ professionalId: "abc", limit: "50", offset: "20" }` → ✅ OK
+  - `professionalId` → ✅ encaminhado ao Prisma
+  - `professionalId undefined` → ✅ sem filtro
+- **Rota**: `GET /appointments/by-phone?phone=...&professionalId=...&limit=...&offset=...`
+
+## 2026-09-17 — SEC-004: Correção final de themeColors + limpeza de working tree
+
+### Correção de Segurança — SEC-004 (iteração 2)
+- **Problema da iteração 1**: `@Transform` retornava `{ ...value }` transformando ThemeColorsDto em plain object. Com `whitelist: true` do ValidationPipe global, `primary` era removido do nested ANTES do `@ValidateNested` validar → 400 falso.
+- **Correção final**:
+  - Removido `@Transform` de `UpdateProfessionalProfileDto`
+  - Adicionado `@IsObject() @ValidateNested() @Type(() => ThemeColorsDto)`
+  - `themeColors` tipado como `ThemeColorsDto | null`
+  - Service converte para plain object com spread `{ ...dto.themeColors }` antes de enviar ao Prisma
+- **Resultado**: nested DTO é ThemeColorsDto real (`instanceof` === true)
+- **Testes finais**: 9/9 passando com ValidationPipe REAL + metatype
+  - `{}` → ✅ OK
+  - themeColors ausente → ✅ undefined
+  - `{ primary }` → ✅ OK
+  - `{ primary, secondary, accent }` → ✅ OK
+  - `{ primary: 123 }` → ❌ 400 (IsString)
+  - `"texto"` → ❌ 400 (IsObject)
+  - `[]` → ❌ 400 (IsObject)
+  - `{ primary, campoExtra }` → ❌ 400 (forbidNonWhitelisted)
+  - `null` → ✅ null (não atualizar)
+
+### Limpeza de Working Tree
+- Revertido 22 arquivos PURE_FORMATTING (ruído de lint --fix)
+- Availabilities, Services, Prisma, Auth (parcial): confirmados como PURE_FORMATTING
+- 9 arquivos funcionais preservados (SEC-002, SEC-003, SEC-004)
+- Removidos 4 arquivos temporários de debug
+
+### Testes Executados
+- `theme-colors-validation.spec.ts`: 9/9 passing
+- `npx tsc --noEmit`: clean
+
 ## 2026-09-16 — JWT_SECRET: remoção do fallback hardcoded
 
 ### Correção de Segurança
