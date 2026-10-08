@@ -29,7 +29,7 @@ function SidebarContent() {
     <>
       <div className="flex items-center gap-2 px-3 py-4 border-b border-gray-200">
         <LayoutDashboard className="w-6 h-6 text-blue-600" />
-        <span className="font-bold text-lg text-gray-900">PEX Admin</span>
+        <span className="font-bold text-lg text-gray-900">AgendarÍ - Dashboard</span>
       </div>
       <nav className="flex-1 p-4 space-y-1">
         <NavLink href="/dashboard" icon={LayoutDashboard}>Agendamentos</NavLink>

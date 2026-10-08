@@ -10,7 +10,7 @@ export default function HomePage() {
       {/* Hero Section */}
       <header className="text-center py-20 px-6 bg-gradient-to-br from-blue-50 via-white to-indigo-50">
         <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-          PEX Agendamento
+          AgendarÍ
         </h1>
         <p className="text-lg md:text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
           Plataforma completa de agendamento para profissionais da beleza.
@@ -79,7 +79,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="text-center py-8 text-gray-500 text-sm">
-        PEX Agendamento &copy; 2026 - Projeto de Extensão Universitária
+        AgendarÍ &copy; 2026 - Projeto de Extensão Universitária
       </footer>
     </div>
   );

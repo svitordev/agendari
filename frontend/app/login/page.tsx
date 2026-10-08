@@ -32,7 +32,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-indigo-50 px-4">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="text-center space-y-2">
-          <CardTitle className="text-3xl text-gray-900">PEX Agendamento</CardTitle>
+          <CardTitle className="text-3xl text-gray-900">AgendarÍ - Login</CardTitle>
           <p className="text-sm text-gray-500">Faça login para continuar</p>
         </CardHeader>
         <CardContent>

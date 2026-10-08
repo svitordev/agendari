@@ -3,8 +3,8 @@ import "./globals.css";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
-  title: "PEX Agendamento",
-  description: "Plataforma de Agendamento para Beleza",
+  title: "AgendarÍ - Plataforma de Agendamento",
+  description: "Plataforma de Agendamento para profissionais",
 };
 
 export default function RootLayout({
