@@ -13,7 +13,7 @@ export default function HomePage() {
           AgendarÍ
         </h1>
         <p className="text-lg md:text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
-          Plataforma completa de agendamento para profissionais da beleza.
+          Plataforma completa de agendamento para profissionais.
           Gerencie seus horários, serviços e clientes de forma simples.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -79,7 +79,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="text-center py-8 text-gray-500 text-sm">
-        AgendarÍ &copy; 2026 - Projeto de Extensão Universitária
+        AgendarÍ &copy; 2026
       </footer>
     </div>
   );
