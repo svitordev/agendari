@@ -78,9 +78,15 @@ export class ProfessionalsController {
   @UseGuards(JwtAuthGuard)
   @Get(':id')
   getById(
+    @Req()
+    req: any,
+
     @Param('id')
     id: string,
   ) {
-    return this.professionalsService.findOneById(id);
+    return this.professionalsService.findOneByIdForOwner(
+      id,
+      req.user?.professionalId,
+    );
   }
 }

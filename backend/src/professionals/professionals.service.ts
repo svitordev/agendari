@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -14,6 +15,38 @@ import { FindProfessionalsDto } from './dto/find-professionals.dto';
 @Injectable()
 export class ProfessionalsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /*
+   * ============================================================
+   * Garante que professionalId foi resolvido a partir do JWT.
+   * Mesmo padrão do módulo services.
+   * ============================================================
+   */
+  private ensureProfessionalId(professionalId: string | undefined): string {
+    if (!professionalId) {
+      throw new ForbiddenException('Usuário não possui perfil profissional.');
+    }
+
+    return professionalId;
+  }
+
+  /*
+   * ============================================================
+   * SEC-001 — leitura por ID com verificação de ownership.
+   * O :id da URL só é aceito quando pertence ao usuário
+   * autenticado. Cross-tenant responde 404 (anti-enumeração),
+   * consistente com o padrão do módulo services.
+   * ============================================================
+   */
+  async findOneByIdForOwner(id: string, professionalId: string | undefined) {
+    professionalId = this.ensureProfessionalId(professionalId);
+
+    if (!id || id !== professionalId) {
+      throw new NotFoundException(`Profissional com ID ${id} não encontrada.`);
+    }
+
+    return this.findOneById(id);
+  }
 
   async create(dto: CreateProfessionalDto) {
     const existing = await this.prisma.professional.findUnique({
