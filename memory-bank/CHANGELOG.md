@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## 2026-10-15 — SEC-001: Ownership check em GET /professionals/:id (commit cd0cd21)
+
+### Correção — SEC-001
+- **Correção**: `findOneByIdForOwner()` no `ProfessionalsService` — `professionalId` confiável vem exclusivamente de `req.user` (JWT); rota `GET /professionals/:id` não confia mais no `:id` da URL
+- **Cross-tenant bloqueado**: Professional A consultando B → 404 (anti-enumeração, padrão do módulo services); sem `professionalId` autenticado → 403
+- **Testes**: `professionals-ownership.spec.ts` (6 testes) — 34/34 passando no módulo; `npm run build` limpo
+- **Commit**: `cd0cd21` — `fix(professionals): enforce ownership on private lookup`
+- **Escopo**: backend apenas; rotas públicas intactas; sem bypass ADMIN
+
 ## 2026-09-19 — Correção pré-deploy: endpoints públicos removidos + validação de senha
 
 ### Correção — C1: RegisterDto mínimo de senha

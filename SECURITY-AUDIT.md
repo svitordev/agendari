@@ -117,15 +117,23 @@ Fase 1: MVP para uma profissional parceira.
 ## Vulnerabilidades Encontradas e Corrigidas
 
 ### ✅ SEC-001 - GET /professionals/:id sem ownership check
-**Status**: FIXED
+**Status**: FIXED (2026-10-15)
 **Impacto**: Médio — Usuário pode acessar dados de qualquer profissional
-**Descrição**: O endpoint GET /professionals/:id retornava dados de qualquer profissional sem verificar se o usuário autenticado é dono dos dados
-**Correção**: Adicionado check em `professionals.service.ts` com filtro por `user.professionalId` em `findOneById()`
+**Descrição**: O endpoint GET /professionals/:id era protegido por JWT, mas aceitava qualquer `:id` arbitrário sem verificar se o usuário autenticado é dono dos dados (cross-tenant). Nota: a correção registrada em 2026-09-16 havia sido revertida como colateral do R3 — o finding permaneceu real até esta correção.
+**Correção**: `findOneByIdForOwner(id, professionalId)` no service — o `professionalId` confiável vem exclusivamente de `req.user` (JWT); o `:id` da URL só é aceito quando pertence ao usuário autenticado. `ensureProfessionalId()` segue o padrão do módulo services.
+**Comportamento final**:
+- GET /professionals/:id continua protegido por JWT
+- Professional só acessa o próprio professionalId
+- Cross-tenant retorna 404 (anti-enumeração, consistente com o módulo services)
+- Ausência de professionalId autenticado retorna 403
+- Rotas públicas (`GET /professionals`, `GET /professionals/slug/:slug`) permanecem intactas
+- Nenhum bypass ADMIN implementado ainda
 **Arquivos**:
 - `backend/src/professionals/professionals.service.ts`
 - `backend/src/professionals/professionals.controller.ts`
-**Evidence**: Compilação clean, 2 métodos modificados
-**Commit**: `security: fix SEC-001 — ownership check em GET /professionals/:id`
+- `backend/src/professionals/professionals-ownership.spec.ts` (novo)
+**Evidence**: commit `cd0cd21` — 34/34 testes focados passando (5 suítes de `src/professionals`), `npm run build` limpo
+**Commit**: `cd0cd21` — `fix(professionals): enforce ownership on private lookup`
 
 ### ✅ SEC-002 - Rate Limiting
 **Status**: FIXED
@@ -219,7 +227,7 @@ Fase 1: MVP para uma profissional parceira.
 
 | ID | Descrição | Status | Impacto | Corrigido |
 |---|---|---|---|---|
-| SEC-001 | GET /professionals/:id sem ownership check | ⏸ DEFERRED | Médio | Não |
+| SEC-001 | GET /professionals/:id sem ownership check | ✅ FIXED (cd0cd21) | Médio | Sim |
 | SEC-002 | Rate limiting ausente | ✅ FIXED | Alto | Sim |
 | SEC-003 | findByPhone sem pagination | ✅ FIXED | Médio | Sim |
 | SEC-004 | themeColors sem validação | ✅ FIXED + VERIFIED | Baixo | Sim |
@@ -312,9 +320,11 @@ Fase 1: MVP para uma profissional parceira.
 ```
 Given: Professional A e B existem
 When: User A acessa GET /professionals/:id (ID de B)
-Then: Retorna 401 Unauthorized
+Then: Retorna 404 Not Found (cross-tenant, anti-enumeração)
 When: User A acessa GET /professionals/:id (seu próprio ID)
 Then: Retorna 200 OK com dados corretos
+When: User sem professionalId acessa GET /professionals/:id
+Then: Retorna 403 Forbidden
 ```
 
 ### SEC-002 - Rate Limiting
@@ -381,8 +391,15 @@ Then: Retorna 400 Bad Request
 
 ## Changelog
 
+### 2026-10-15 - SEC-001 corrigido de fato (commit cd0cd21)
+- [x] SEC-001: Ownership check em GET /professionals/:id — FIXED
+  - A correção de 2026-09-16 havia sido revertida como colateral do R3 (ver nota no item 1 de "Próximos itens") — o finding estava real no pré-fix
+  - `findOneByIdForOwner()` com `professionalId` exclusivo de `req.user` (JWT); cross-tenant → 404; sem professionalId → 403
+  - Evidência: 34/34 testes focados (5 suítes), build limpo, spec novo `professionals-ownership.spec.ts`
+  - Sem bypass ADMIN (painel ADMIN é tarefa posterior)
+
 ### 2026-09-16 - Auditoria Inicial
-- [x] SEC-001: Ownership check implementado ✅
+- [x] SEC-001: Ownership check implementado ✅ (revertido como colateral do R3 — corrigido de fato em 2026-10-15, cd0cd21)
 - [x] SEC-002: Rate limiting configurado ✅
 - [x] SEC-003: Pagination em findByPhone ✅
 - [x] SEC-004: Validacao estrutural themeColors ✅
