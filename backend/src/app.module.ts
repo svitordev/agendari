@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ServicesModule } from './services/services.module';
 import { AvailabilitiesModule } from './availabilities/availabilities.module';
 import { AuthModule } from './auth/auth.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AuthModule } from './auth/auth.module';
     ]),
     PrismaModule,
     AuthModule,
+    AdminModule,
     ProfessionalsModule,
     AppointmentsModule,
     ServicesModule,
