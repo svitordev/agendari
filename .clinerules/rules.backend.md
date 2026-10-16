@@ -17,8 +17,8 @@
 ### Rotas Privadas / Operações Autenticadas
 - Ownership/identidade deve vir EXCLUSIVAMENTE de `req.user.professionalId`.
 - Nunca confiar em `professionalId` recebido do body/query para autorização.
-- Estado atual: appointments ✅, availabilities ✅, professionals/me ✅
-- Problemas confirmados: services sem guards (C1), professionals/:id sem ownership (C2)
+- Estado atual: appointments ✅, availabilities ✅, professionals/me ✅, professionals/:id ✅ (cd0cd21)
+- Problemas confirmados: services sem guards (C1). ~~professionals/:id sem ownership (C2)~~ — ✅ resolvido (cd0cd21)
 
 ### Rotas Públicas
 - `professionalId` pode ser recebido como identificador do profissional-alvo

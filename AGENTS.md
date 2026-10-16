@@ -155,7 +155,7 @@ enum AppointmentCancelledBy { PROFESSIONAL, CUSTOMER }
 | appointments | ✅ | Todas rotas protegidas usam `req.user?.professionalId` |
 | availabilities | ✅ | Todas rotas protegidas usam `req.user?.professionalId` |
 | professionals/me | ✅ | `req.user?.professionalId` |
-| professionals/:id | ❌ | Guard sim, mas sem ownership check — retorna User de qualquer pro (RISCO C2) |
+| professionals/:id | ✅ | Ownership via `req.user?.professionalId` — cross-tenant → 404, sem professionalId → 403 (SEC-001, cd0cd21) |
 | services | ❌ | Sem guards nenhum — 100% público (RISCO C1) |
 
 ## Pendências de Confirmação
@@ -172,7 +172,7 @@ enum AppointmentCancelledBy { PROFESSIONAL, CUSTOMER }
 3. OTP/token para verificação de posse de telefone
 4. HTTP-only cookie para JWT (em vez de localStorage — risco XSS)
 5. Rate limiting em rotas sensíveis
-6. Ownership check em `GET /professionals/:id`
+6. ~~Ownership check em `GET /professionals/:id`~~ — ✅ concluída (cd0cd21)
 7. Guards em CRUD de services
 8. Remover permissão de criar ADMIN via register público
 9. Migrar CORS de hardcoded para env var

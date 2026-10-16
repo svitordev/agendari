@@ -56,7 +56,7 @@ RolesGuard (Reflector — NÃO consulta banco)
 | appointments | ✅ | Sempre `req.user?.professionalId` em rotas protegidas |
 | availabilities | ✅ | Sempre `req.user?.professionalId` em rotas protegidas |
 | professionals/me | ✅ | `req.user?.professionalId` |
-| professionals/:id | ❌ | Sem ownership check — retorna User de qualquer pro |
+| professionals/:id | ✅ | Ownership via `req.user?.professionalId` — cross-tenant → 404, sem professionalId → 403 (SEC-001, cd0cd21) |
 | services | ❌ | Sem guards — 100% público |
 | GET /professionals | — | Rota pública — payload limitado a dados do Professional (sem User) |
 

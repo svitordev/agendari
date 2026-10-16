@@ -53,7 +53,7 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 
 ### Problemas ⚠️
 - Services: ZERO guards — qualquer pessoa pode fazer CRUD
-- Professionals/:id: guard sim, mas sem ownership check — vazamento de dados User
+- Professionals/:id: ✅ **RESOLVIDO** (cd0cd21) — ownership via `req.user`; cross-tenant → 404, sem professionalId → 403
 - GET /professionals: rota pública — documentação atualizada para registrar que o payload é limitado a dados públicos (Professional + services ativos + availabilities ativas com períodos). Não inclui User (email, senha, role)
 
 ## Regras Críticas
@@ -71,7 +71,7 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 | # | Problema | Arquivo | Descrição |
 |---|---|---|---|
 | C1 | Services CRUD sem guard | `services.controller.ts` | POST/PATCH/DELETE 100% públicos — qualquer um pode criar/editar/excluir serviços de qualquer profissional |
-| C2 | Professionals/:id sem ownership | `professionals.service.ts:98-106` | GET retorna User (email, role, nomes) de QUALQUER profissional — cross-tenant data leak |
+| C2 | ~~Professionals/:id sem ownership~~ | `professionals.service.ts` | ✅ **RESOLVIDO** (cd0cd21) — ownership via `req.user`; cross-tenant → 404, sem professionalId → 403 |
 | C3 | Register permite ADMIN | `register.dto.ts:21` + `auth.service.ts` | `@IsIn(['ADMIN','PROFESSIONAL','CUSTOMER'])` sem validação — qualquer um registra ADMIN |
 
 ### 🟠 ALTO
