@@ -14,6 +14,7 @@ Auditoria completa realizada em 2026-08-27 (~70 arquivos verificados).
 | **appointments** | appointments.controller, appointments.service, create-appointment.dto, update-status.dto, cancel-public.dto | CRUD + rotas públicas. Business logic de conflitos, transições de status, ownership. |
 | **services** | services.controller, services.service, create-service.dto, update-service.dto | CRUD ⚠️ sem guards — ver PROJETO.md RISCO C1 |
 | **availabilities** | availabilities.controller, availabilities.service, 6 DTOs | CRUD completo + exceções + múltiplos períodos. Todos com guards. |
+| **admin** | admin.controller, admin.module | Fundação RBAC (v1.1): GET /admin/me com @Roles(Role.ADMIN). Sem AdminService (sem lógica ainda). |
 | **prisma** | prisma.module, prisma.service | PrismaService @Global() |
 
 ### Validação Global
@@ -26,6 +27,28 @@ Auditoria completa realizada em 2026-08-27 (~70 arquivos verificados).
 - `secretOrKey: requireJwtSecret()` — ✅ resolvido (2026-09-16) — função centralizada em `jwt-validation.ts`
 - ExpiresIn: 24h
 - req.user: `{ userId, email, role, professionalId?, firstName, lastName }`
+
+### Autorização por Role (RBAC — v1.1, desde 2026-10-15)
+```
+JWT (payload: { sub, email } — role NÃO está no JWT)
+  ↓
+JwtAuthGuard
+  ↓
+JwtStrategy consulta User no banco (a cada request autenticado)
+  ↓
+req.user.role
+  ↓
+RolesGuard (Reflector — NÃO consulta banco)
+  ↓
+@Roles(Role.ADMIN)
+```
+- Role é obtida do banco em cada request autenticado — promoção/revogação tem efeito imediato
+- `@Roles` usa o enum `Role` do Prisma (`ROLES_KEY` explícita via `SetMetadata`) — `Role.ADMIN` já existia no schema, sem migration
+- RolesGuard: sem metadata `@Roles` na rota/classe → permite; role divergente/ausente → 403
+- Guards de role **não são globais** — route-level via `@UseGuards(JwtAuthGuard, RolesGuard)` (Jwt primeiro, Roles depois)
+- Primeira rota ADMIN: `GET /admin/me` (`@Roles(Role.ADMIN)`) — ADMIN → 200 · PROFESSIONAL → 403 · sem JWT → 401
+- Rotas públicas permanecem intactas; nenhum bypass ADMIN em rotas existentes
+- Frontend ADMIN ainda não existe
 
 ### Ownership por Módulo
 | Módulo | Ownership | Observação |

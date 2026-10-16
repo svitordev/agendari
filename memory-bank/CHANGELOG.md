@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-10-15 — Fundação ADMIN: RBAC (@Roles + RolesGuard) + GET /admin/me (commit 338b3c6)
+
+- **RBAC adicionado**: `decorators/roles.decorator.ts` (`@Roles` tipado pelo enum `Role` do Prisma, `ROLES_KEY` explícita) + `guards/roles.guard.ts` (Reflector `getAllAndOverride`, route-level, sem metadata → permite, sem query ao banco)
+- **Fluxo**: JWT (payload sem role) → JwtAuthGuard → JwtStrategy consulta User no banco a cada request → `req.user.role` → RolesGuard → `@Roles(Role.ADMIN)`
+- **Primeira rota ADMIN**: `GET /admin/me` — `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)`; retorna somente `userId`, `email`, `firstName`, `lastName`, `role`
+- **Comportamento**: ADMIN → 200 · PROFESSIONAL → 403 · sem JWT → 401
+- **Sem mudança**: payload JWT, schema Prisma, migrations, rotas públicas, guards globais (só ThrottlerGuard)
+- **Testes**: 86/86 passando (12 suítes) — `roles.guard.spec.ts` (6) + `admin.controller.spec.ts` (4, cadeia real com Prisma mockado)
+- **Commit**: `338b3c6` — `feat(admin): add role-based authorization foundation`
+- **Pendente (não implementado)**: `/admin/professionals`, frontend ADMIN, criação de Professional+User por ADMIN, suspensão/reativação
+
 ## 2026-10-15 — SEC-001: Ownership check em GET /professionals/:id (commit cd0cd21)
 
 ### Correção — SEC-001

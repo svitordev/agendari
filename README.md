@@ -32,7 +32,7 @@
 
 ```
 pex-agendamento/
-├── backend/          # API NestJS — 6 módulos
+├── backend/          # API NestJS — 7 módulos
 ├── frontend/         # Web app Next.js — App Router
 ├── .clinerules/      # Regras de desenvolvimento por área
 ├── docs/             # Documentação técnica detalhada
@@ -48,6 +48,7 @@ pex-agendamento/
 | appointments | POST /appointments, GET /appointments/available, GET /appointments/by-phone, PATCH /appointments/:id/cancel-public, GET/PATCH/DELETE /appointments/* | parcial | CRUD + rotas públicas |
 | services | POST/GET/PATCH/DELETE /services/* | ❌ | CRUD serviços ⚠️ sem guard |
 | availabilities | CRUD completo + exceções + períodos | ✅ | Disponibilidade com guards |
+| admin | GET /admin/me | ✅ | Fundação RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`) |
 
 ## Configuração
 
