@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AdminController } from './admin.controller';
+import { AdminService } from './admin.service';
 
 /*
  * AdminModule — fundação da área ADMIN (v1.1).
@@ -7,5 +8,6 @@ import { AdminController } from './admin.controller';
  */
 @Module({
   controllers: [AdminController],
+  providers: [AdminService],
 })
 export class AdminModule {}

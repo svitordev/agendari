@@ -1,9 +1,11 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { Roles } from '../decorators/roles.decorator';
+import { AdminService } from './admin.service';
+import { AdminListProfessionalsDto } from './dto/admin-list-professionals.dto';
 
 /*
  * ============================================================
@@ -18,6 +20,8 @@ import { Roles } from '../decorators/roles.decorator';
  */
 @Controller('admin')
 export class AdminController {
+  constructor(private readonly adminService: AdminService) {}
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @Get('me')
@@ -29,5 +33,20 @@ export class AdminController {
     const { userId, email, firstName, lastName, role } = req.user;
 
     return { userId, email, firstName, lastName, role };
+  }
+
+  /*
+   * ============================================================
+   * Listagem administrativa read-only.
+   * Mesma cadeia de guards da fundação: JwtAuthGuard popula
+   * req.user (role do banco), RolesGuard aplica @Roles.
+   * Controller fino: recebe DTO, delega ao AdminService.
+   * ============================================================
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Get('professionals')
+  listProfessionals(@Query() query: AdminListProfessionalsDto) {
+    return this.adminService.listProfessionals(query);
   }
 }
