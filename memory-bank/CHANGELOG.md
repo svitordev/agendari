@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-10-16 — GET /admin/professionals: listagem administrativa read-only (commit b05169a)
+
+- **Nova rota**: `GET /admin/professionals` — `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)`; ADMIN → 200 · PROFESSIONAL → 403 · sem JWT → 401. Read-only
+- **AdminService** (novo, `admin.service.ts`): paginação server-side via `AdminListProfessionalsDto` (limit default 20 / máx 100, offset default 0); ordenação determinística `createdAt desc` + `id asc`; um único `where` usado por `findMany` e `count` (`Promise.all`)
+- **Search**: opcional, `contains` case-insensitive em `name` OR `slug` OR `user.email` — nada além
+- **Resposta**: `{ items, total, limit, offset }`; `select` explícito sem password — professional `{id, slug, name, avatarUrl, createdAt, updatedAt}` + `user {id, email, firstName, lastName, role}` (nullable) + `_count` de services/appointments
+- **Sem mudança**: schema Prisma, migrations, JWT/auth, guards globais, rotas públicas (`/professionals` permanece separada); nenhum bypass ADMIN em rotas antigas
+- **Testes**: `admin-professionals.spec.ts` (17 testes — cadeia real de guards + ValidationPipe real, Prisma mockado, sem banco real) — suíte completa 103/103 (13 suítes); `npm run build` limpo
+- **Commit**: `b05169a` — `feat(admin): add professionals list`
+- **Pendente (não implementado)**: frontend ADMIN, criação de Professional+User por ADMIN, edição, suspensão/reativação
+
 ## 2026-10-15 — Fundação ADMIN: RBAC (@Roles + RolesGuard) + GET /admin/me (commit 338b3c6)
 
 - **RBAC adicionado**: `decorators/roles.decorator.ts` (`@Roles` tipado pelo enum `Role` do Prisma, `ROLES_KEY` explícita) + `guards/roles.guard.ts` (Reflector `getAllAndOverride`, route-level, sem metadata → permite, sem query ao banco)

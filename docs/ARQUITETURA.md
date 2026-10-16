@@ -14,7 +14,7 @@ Auditoria completa realizada em 2026-08-27 (~70 arquivos verificados).
 | **appointments** | appointments.controller, appointments.service, create-appointment.dto, update-status.dto, cancel-public.dto | CRUD + rotas públicas. Business logic de conflitos, transições de status, ownership. |
 | **services** | services.controller, services.service, create-service.dto, update-service.dto | CRUD ⚠️ sem guards — ver PROJETO.md RISCO C1 |
 | **availabilities** | availabilities.controller, availabilities.service, 6 DTOs | CRUD completo + exceções + múltiplos períodos. Todos com guards. |
-| **admin** | admin.controller, admin.module | Fundação RBAC (v1.1): GET /admin/me com @Roles(Role.ADMIN). Sem AdminService (sem lógica ainda). |
+| **admin** | admin.controller, admin.module, admin.service, dto | RBAC (v1.1): GET /admin/me + GET /admin/professionals (listagem read-only) com @Roles(Role.ADMIN). |
 | **prisma** | prisma.module, prisma.service | PrismaService @Global() |
 
 ### Validação Global
@@ -49,6 +49,26 @@ RolesGuard (Reflector — NÃO consulta banco)
 - Primeira rota ADMIN: `GET /admin/me` (`@Roles(Role.ADMIN)`) — ADMIN → 200 · PROFESSIONAL → 403 · sem JWT → 401
 - Rotas públicas permanecem intactas; nenhum bypass ADMIN em rotas existentes
 - Frontend ADMIN ainda não existe
+
+### Listagem administrativa GET /admin/professionals (desde 2026-10-16, b05169a)
+```
+ADMIN
+  ↓
+GET /admin/professionals
+  ↓
+AdminService
+  ↓
+Prisma findMany + count
+  ↓
+{ items, total, limit, offset }
+```
+- **Read-only** — sem criação/edição/suspensão/exclusão nesta rota
+- Proteção: `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)` — PROFESSIONAL → 403 · sem JWT → 401 · ADMIN → 200
+- Paginação server-side: limit default 20 / máx 100, offset default 0 (DTO com class-validator; inválido → 400)
+- `search` opcional: `contains` case-insensitive em `name` OR `slug` OR `user.email`
+- `select` explícito sem password; `user` pode ser null (Professional sem User é válido); `_count` de services/appointments
+- Ordenação determinística: `createdAt desc` + `id asc`; `total` vem de `count` com o mesmo `where`
+- Rota pública `GET /professionals` permanece separada e inalterada; nenhum bypass ADMIN nas rotas antigas
 
 ### Ownership por Módulo
 | Módulo | Ownership | Observação |
