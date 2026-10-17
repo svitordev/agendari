@@ -23,7 +23,16 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       if (typeof window !== 'undefined') {
-        window.location.href = '/login';
+        if (window.location.pathname === '/admin/login') {
+          // Já estamos na tela de login admin: o 401 veio do próprio
+          // POST /auth/login (credenciais inválidas). Redirecionar para a
+          // mesma URL recarregaria a página e perderia a mensagem de erro.
+        } else {
+          // Área admin tem login próprio; demais rotas seguem para /login.
+          window.location.href = window.location.pathname.startsWith('/admin')
+            ? '/admin/login'
+            : '/login';
+        }
       }
     }
     return Promise.reject(error);

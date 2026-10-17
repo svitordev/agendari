@@ -75,3 +75,36 @@ export interface AuthResponse {
   accessToken: string;
   user: User;
 }
+
+// ============================================
+// BACKOFFICE ADMIN (GET /admin/professionals)
+// ============================================
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'ADMIN' | 'PROFESSIONAL' | 'CUSTOMER';
+}
+
+export interface AdminProfessionalItem {
+  id: string;
+  slug: string;
+  name: string;
+  avatarUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user: AdminUser | null;
+  _count: {
+    services: number;
+    appointments: number;
+  };
+}
+
+export interface AdminProfessionalsResponse {
+  items: AdminProfessionalItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}

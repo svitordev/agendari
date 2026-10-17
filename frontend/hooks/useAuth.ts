@@ -23,12 +23,13 @@ export function useAuth() {
     const res = await api.post<AuthResponse>('/auth/login', { email, password });
     localStorage.setItem('token', res.data.accessToken);
     setUser(res.data.user);
+    return res.data.user;
   };
 
-  const logout = () => {
+  const logout = (redirectTo: string = '/login') => {
     localStorage.removeItem('token');
     setUser(null);
-    window.location.href = '/login';
+    window.location.href = redirectTo;
   };
 
   return { user, loading, login, logout };

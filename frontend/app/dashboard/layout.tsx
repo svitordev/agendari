@@ -38,7 +38,7 @@ function SidebarContent() {
          <NavLink href="/dashboard/profile" icon={User}>Meu Perfil</NavLink>
       </nav>
       <div className="p-4 border-t border-gray-200">
-        <Button variant="outline" className="w-full justify-start text-red-600 hover:text-red-700" onClick={logout}>
+        <Button variant="outline" className="w-full justify-start text-red-600 hover:text-red-700" onClick={() => logout()}>
           <LogOut className="w-4 h-4 mr-2" />
           Sair
         </Button>
