@@ -48,7 +48,7 @@ RolesGuard (Reflector — NÃO consulta banco)
 - Guards de role **não são globais** — route-level via `@UseGuards(JwtAuthGuard, RolesGuard)` (Jwt primeiro, Roles depois)
 - Primeira rota ADMIN: `GET /admin/me` (`@Roles(Role.ADMIN)`) — ADMIN → 200 · PROFESSIONAL → 403 · sem JWT → 401
 - Rotas públicas permanecem intactas; nenhum bypass ADMIN em rotas existentes
-- Frontend ADMIN ainda não existe
+- Frontend ADMIN: existe desde f420ac0 (read-only) — ver seção "Backoffice ADMIN — frontend"
 
 ### Listagem administrativa GET /admin/professionals (desde 2026-10-16, b05169a)
 ```
@@ -93,12 +93,27 @@ Prisma findMany + count
 | `/dashboard/services` | ✅ | CRUD de serviços ⚠️ busca global não filtrada |
 | `/dashboard/availability` | ✅ | Gestão de disponibilidade + exceções |
 | `/dashboard/profile` | ✅ | Perfil + theme colors |
+| `/admin/login` | ❌ | Login do backoffice (somente ADMIN conclui o acesso) |
+| `/admin` | ADMIN | Painel administrativo read-only |
+| `/admin/professionals` | ADMIN | Listagem read-only de profissionais |
 
 ### Autenticação
 - `useAuth()` hook com localStorage para JWT
 - Axios interceptors para Bearer token e redirect 401
 - ProtectedRoute wrapper no dashboard layout
 - ⚠️ localStorage vulnerável a XSS — ver PROJETO.md A2
+
+### Backoffice ADMIN — frontend (desde 2026-10-16, f420ac0) — read-only
+- Route groups do App Router: `app/admin/(auth)` (login, SEM guard) e `app/admin/(protected)` (layout com `AdminRoute`) — route groups não aparecem na URL
+- Reutiliza o mesmo `useAuth()`, o mesmo cliente Axios e o mesmo `POST /auth/login` — sem segundo AuthContext e sem segundo cliente HTTP
+- `/admin/login`: ADMIN → `/admin`; não-ADMIN → sessão removida imediatamente, acesso recusado, permanece na página
+- Área protegida: sem sessão → `/admin/login`; PROFESSIONAL → `/login`; ADMIN → acesso
+- `AdminRoute` (frontend) = guard de UX; o backend (`RolesGuard` + `@Roles(Role.ADMIN)`) continua sendo a boundary real de autorização
+- Interceptor 401: em `/admin/*` → remove token e redireciona para `/admin/login`; **exceção**: já estando em `/admin/login`, remove o token mas NÃO redireciona/recarrega (permite exibir erro de credenciais do próprio login); fora da área ADMIN → `/login` (inalterado)
+- Logout: ADMIN → `/admin/login`; profissional → `/login` (inalterado)
+- `/admin/professionals`: tabela read-only, search com debounce 400 ms (trim, parâmetro omitido quando vazio, mudança de termo reseta offset), paginação Anterior/Próxima (limit 20), skeleton/empty state/erro com retry, `user=null` seguro, resposta obsoleta descartada (guarda de sequência)
+- Dívida não bloqueante: `AdminRoute` e o shell do layout usam instâncias independentes de `useAuth()` → dois `GET /auth/profile` por navegação na área protegida (sem impacto de segurança; não corrigido nesta entrega)
+- Testes frontend: Vitest + Testing Library (jsdom), 5 suítes, 18/18 passando, sem backend real
 
 ## Banco de Dados (PostgreSQL + Prisma 6)
 
@@ -150,6 +165,26 @@ exclusão apenas de finalizados, cancelamento público com validação de telefo
 → retorna appointments com customer, service, professional includes
 → PATCH /appointments/:id/cancel-public → cancela se phone válido + status PENDING/CONFIRMED
 ```
+
+### 5. Backoffice ADMIN — read-only (desde 2026-10-16, f420ac0)
+```
+/admin/login
+    ↓
+POST /auth/login
+    ↓
+ADMIN
+    ↓
+/admin
+    ↓
+AdminRoute (guard de UX)
+    ↓
+/admin/professionals
+    ↓
+GET /admin/professionals
+```
+- Guard frontend = UX; backend (`RolesGuard`) = boundary real de autorização
+- Não-ADMIN em `/admin/login`: sessão removida, acesso recusado, permanece na página
+- CRUD de profissionais ainda não existe (pendente)
 
 ## Pontos de Atenção
 Ver PROJETO.md → "Lista Priorizada de Problemas" para detalhes.

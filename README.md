@@ -27,6 +27,7 @@
 | Estilização | Tailwind CSS + shadcn/ui | ^4 |
 | Formulários | react-hook-form | ^7.86.0 |
 | Datas | date-fns (pt-BR) + react-calendar | — |
+| Testes | Vitest + Testing Library (jsdom) | — |
 
 ## Estrutura
 
@@ -48,7 +49,19 @@ pex-agendamento/
 | appointments | POST /appointments, GET /appointments/available, GET /appointments/by-phone, PATCH /appointments/:id/cancel-public, GET/PATCH/DELETE /appointments/* | parcial | CRUD + rotas públicas |
 | services | POST/GET/PATCH/DELETE /services/* | ❌ | CRUD serviços ⚠️ sem guard |
 | availabilities | CRUD completo + exceções + períodos | ✅ | Disponibilidade com guards |
-| admin | GET /admin/me, GET /admin/professionals | ✅ | RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`); listagem read-only com paginação/search |
+| admin | GET /admin/me, GET /admin/professionals | ✅ | RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`); listagem read-only com paginação/search — consumida pelo backoffice frontend |
+
+### Rotas Frontend
+
+| Rota | Acesso | Descrição |
+|---|---|---|
+| `/login` | público | Login do profissional |
+| `/dashboard/*` | auth | Painel do profissional |
+| `/agendamentos` | público | Consulta pública por telefone |
+| `/professional/[slug]` | público | Página pública do profissional |
+| `/admin/login` | público | Login do backoffice (somente ADMIN conclui o acesso) |
+| `/admin` | ADMIN | Painel administrativo read-only |
+| `/admin/professionals` | ADMIN | Listagem read-only de profissionais |
 
 ## Configuração
 
@@ -93,4 +106,5 @@ cd frontend && npm run dev
 - Backend usa `strictNullChecks: false` — **não alterar automaticamente** (migração planejada)
 - `.env` está em `.gitignore` — **nunca commitar**
 - JWT_SECRET é **obrigatório** — `requireJwtSecret()` em `main.ts` falha se ausente/ vazio
+- Frontend: `npm run test` roda Vitest (18 testes, sem backend real)
 - Documentação detalhada: ver `PROJETO.md` e `docs/ARQUITETURA.md`

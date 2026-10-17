@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 2026-10-16 — Frontend ADMIN read-only (commit f420ac0)
+
+- **Rotas** (route groups, sem segmento na URL): `/admin/login` (público), `/admin` e `/admin/professionals` (protegidas por `AdminRoute` via `app/admin/(protected)/layout.tsx`); login em `app/admin/(auth)` — fora do guard, sem loop
+- **Auth reutilizado**: mesmo `useAuth()`, mesmo cliente Axios, mesmo `POST /auth/login` — sem segundo AuthContext e sem segundo cliente HTTP; backend continua a autoridade real de autorização
+- **Comportamento**: `/admin/login` — ADMIN → `/admin`; não-ADMIN → sessão removida imediatamente, acesso recusado, permanece na página. Área protegida — sem sessão → `/admin/login`; PROFESSIONAL → `/login`; ADMIN → acesso
+- **Interceptor 401**: em `/admin/*` → remove token e redireciona para `/admin/login`; exceção em `/admin/login` — remove o token mas NÃO recarrega a própria página (permite exibir erro de credenciais); fora da área ADMIN → `/login` (inalterado)
+- **Logout**: ADMIN → `/admin/login`; profissional → `/login` (inalterado)
+- **Listagem** (`GET /admin/professionals`): read-only; tabela responsiva; search com debounce 400 ms (trim, parâmetro omitido quando vazio, mudança de termo reseta offset); paginação Anterior/Próxima (limit 20); skeleton/empty state/erro com retry; `user=null` seguro; contagens services/appointments; data de criação; resposta obsoleta descartada (guarda de sequência)
+- **Testes**: Vitest + Testing Library (jsdom) adicionados como devDependencies (nenhuma dependência de produção nova); 5 suítes, 18/18 passando; `npm run build` PASS; testes sem backend real
+- **Dívida não bloqueante**: `AdminRoute` e o shell do layout usam instâncias independentes de `useAuth()` → dois `GET /auth/profile` por navegação na área protegida (sem impacto de segurança)
+- **Pendentes (não implementados)**: criação/edição/suspensão/reativação/exclusão de profissionais, alteração de role/senha, pagamentos, auditoria, métricas — o que está pronto é apenas o backoffice READ-ONLY
+- **Commit**: `f420ac0` — `feat(admin): add read-only admin frontend`
+
 ## 2026-10-16 — GET /admin/professionals: listagem administrativa read-only (commit b05169a)
 
 - **Nova rota**: `GET /admin/professionals` — `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)`; ADMIN → 200 · PROFESSIONAL → 403 · sem JWT → 401. Read-only

@@ -14,6 +14,7 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 - [x] Página pública por slug (/professional/jessicasantana)
 - [x] Confirmação/cancelamento de agendamentos
 - [x] Consulta pública de agendamentos por telefone
+- [x] Backoffice ADMIN read-only: login ADMIN + listagem paginada de profissionais (f420ac0) — CRUD de profissionais ainda pendente
 - [ ] Correções de segurança identificadas na auditoria (ver abaixo)
 
 ### Fase 2 (SaaS) — Planejada
