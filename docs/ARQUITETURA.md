@@ -14,7 +14,7 @@ Auditoria completa realizada em 2026-08-27 (~70 arquivos verificados).
 | **appointments** | appointments.controller, appointments.service, create-appointment.dto, update-status.dto, cancel-public.dto | CRUD + rotas públicas. Business logic de conflitos, transições de status, ownership. |
 | **services** | services.controller, services.service, create-service.dto, update-service.dto | CRUD ⚠️ sem guards — ver PROJETO.md RISCO C1 |
 | **availabilities** | availabilities.controller, availabilities.service, 6 DTOs | CRUD completo + exceções + múltiplos períodos. Todos com guards. |
-| **admin** | admin.controller, admin.module, admin.service, dto | RBAC (v1.1): GET /admin/me + GET /admin/professionals (listagem read-only) com @Roles(Role.ADMIN). |
+| **admin** | admin.controller, admin.module, admin.service, dto, admin-create-professional.dto | RBAC (v1.2): GET /admin/me + GET /admin/professionals (listagem read-only) + POST /admin/professionals (criação Professional + User) com @Roles(Role.ADMIN). |
 | **prisma** | prisma.module, prisma.service | PrismaService @Global() |
 
 ### Validação Global
@@ -69,6 +69,30 @@ Prisma findMany + count
 - `select` explícito sem password; `user` pode ser null (Professional sem User é válido); `_count` de services/appointments
 - Ordenação determinística: `createdAt desc` + `id asc`; `total` vem de `count` com o mesmo `where`
 - Rota pública `GET /professionals` permanece separada e inalterada; nenhum bypass ADMIN nas rotas antigas
+
+### Criação administrativa POST /admin/professionals (desde 2026-10-18, cfc4ad2)
+```
+ADMIN
+  ↓
+POST /admin/professionals
+  ↓
+AdminService.createProfessional
+  ↓
+bcrypt hash (custo 10, antes da escrita)
+  ↓
+Prisma Professional.create └── user.create aninhado
+  ↓
+Professional + User (role PROFESSIONAL)
+```
+- **Contrato**: `name`, `slug`, `email`, `firstName`, `lastName`, `password` — todos obrigatórios; `slug` validado com `^[a-z0-9-]+$`, `email` com `@IsEmail`, `password` com `@MinLength(8)`; campos extras → 400 via `forbidNonWhitelisted`
+- **Role**: sempre `PROFESSIONAL`, definida internamente — o cliente não controla role/ids/timestamps
+- **Atomicidade**: uma única nested write Prisma (`professional.create` com `user.create`); os testes validam a operação única estruturalmente — não afirmam rollback real do PostgreSQL
+- **Conflitos**: `P2002` → 409 com mensagens seguras (email → "E-mail já cadastrado." · slug → "Slug já cadastrado." · target desconhecido → 409 genérico); sem expor meta/constraint/stack
+- **Resposta 201**: `{ professional: { id, slug, name, createdAt }, user: { id, email, firstName, lastName, role, professionalId, createdAt } }` — sem password
+- **Proteção**: `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)` — PROFESSIONAL → 403 · sem JWT → 401
+- **Dívida não bloqueante (existente)**: `name`/`firstName`/`lastName` seguem o padrão atual de `@IsNotEmpty` — whitespace-only passa; não corrigido nesta entrega
+- **Frontend**: tela de criação ainda não existe — backend primeiro; `RolesGuard` continua sendo a boundary real de autorização
+- **Sem mudança**: schema Prisma (nenhuma migration), auth público, professionals.service, rotas públicas
 
 ### Ownership por Módulo
 | Módulo | Ownership | Observação |
@@ -184,7 +208,7 @@ GET /admin/professionals
 ```
 - Guard frontend = UX; backend (`RolesGuard`) = boundary real de autorização
 - Não-ADMIN em `/admin/login`: sessão removida, acesso recusado, permanece na página
-- CRUD de profissionais ainda não existe (pendente)
+- Criação via backend já existe (`POST /admin/professionals`, cfc4ad2 — ver seção "Criação administrativa"); tela de criação no frontend ainda pendente; edição/suspensão/exclusão pendentes
 
 ## Pontos de Atenção
 Ver PROJETO.md → "Lista Priorizada de Problemas" para detalhes.

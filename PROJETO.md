@@ -14,7 +14,9 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 - [x] Página pública por slug (/professional/jessicasantana)
 - [x] Confirmação/cancelamento de agendamentos
 - [x] Consulta pública de agendamentos por telefone
-- [x] Backoffice ADMIN read-only: login ADMIN + listagem paginada de profissionais (f420ac0) — CRUD de profissionais ainda pendente
+- [x] Backoffice ADMIN read-only: login ADMIN + listagem paginada de profissionais (f420ac0)
+- [x] Backend ADMIN cria Professional + User atomicamente (cfc4ad2) — tela de criação no frontend ainda pendente
+- [ ] CRUD completo de profissionais pelo ADMIN (edição, suspensão/reativação, exclusão) — ainda pendente
 - [ ] Correções de segurança identificadas na auditoria (ver abaixo)
 
 ### Fase 2 (SaaS) — Planejada
@@ -34,7 +36,7 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 | Autenticação | JWT + Passport + bcrypt | localStorage + useAuth |
 | UI | — | Tailwind CSS + shadcn/ui |
 
-## Arquitetura Backend — 6 Módulos
+## Arquitetura Backend — 7 Módulos
 
 | Módulo | Descrição |
 |---|---|
@@ -43,6 +45,7 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 | appointments | CRUD + rotas públicas (criação, consulta por telefone, cancelamento) |
 | services | CRUD ⚠️ SEM GUARDS |
 | availabilities | CRUD completo com guards + exceções + múltiplos períodos |
+| admin | RBAC (@Roles ADMIN): me, listagem read-only, criação Professional + User |
 | prisma | PrismaService @Global |
 
 ## Multi-tenant — Estado Atual

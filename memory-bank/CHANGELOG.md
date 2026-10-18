@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 2026-10-18 — Criação administrativa Professional + User (commit cfc4ad2)
+
+- **Nova rota**: `POST /admin/professionals` — `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)`; ADMIN → 201 · PROFESSIONAL → 403 · sem JWT → 401. Primeira operação de escrita do backoffice
+- **Contrato**: cria 1 Professional (`name`, `slug`) + 1 User associado (`email`, `firstName`, `lastName`, `password` inicial). `role` é forçada internamente para `PROFESSIONAL` — o cliente não controla role/ids/timestamps (campos fora do DTO → 400 via `forbidNonWhitelisted`)
+- **Atomicidade**: uma única nested write Prisma (`professional.create` com `user.create` aninhado) — sem `user.create` separado; a associação nasce da relação. Os testes validam a operação única estruturalmente (não afirmam rollback real do PostgreSQL)
+- **Password**: hash bcrypt custo 10 (consistente com auth atual), antes da escrita; plaintext nunca é retornado; `select` explícito sem password nos dois níveis
+- **Conflitos**: `P2002` mapeado para 409 — email → "E-mail já cadastrado." · slug → "Slug já cadastrado." · target desconhecido → 409 genérico seguro; sem expor meta/constraint/stack; outros erros seguem tratamento normal
+- **Resposta 201**: `{ professional: { id, slug, name, createdAt }, user: { id, email, firstName, lastName, role, professionalId, createdAt } }` — sem password
+- **Testes**: `admin-create-professional.spec.ts` (25 novos — cadeia real de guards + ValidationPipe real, Prisma mockado, sem banco real); admin 46/46; suíte completa **128/128** (14 suítes); `npm run build` PASS
+- **Dívida não bloqueante (existente)**: `name`/`firstName`/`lastName` seguem o padrão atual de `@IsNotEmpty` — whitespace-only passa; não corrigido aqui, não é vulnerabilidade crítica
+- **Sem mudança**: schema Prisma (nenhuma migration), auth público, professionals.service, rotas públicas, frontend
+- **Pendente (não implementado)**: frontend da criação (`/admin/professionals/new`), edição, suspensão/reativação, exclusão, alteração de role/senha, pagamentos, auditoria, métricas
+- **Commit**: `cfc4ad2` — `feat(admin): add professional creation`
+
 ## 2026-10-16 — Frontend ADMIN read-only (commit f420ac0)
 
 - **Rotas** (route groups, sem segmento na URL): `/admin/login` (público), `/admin` e `/admin/professionals` (protegidas por `AdminRoute` via `app/admin/(protected)/layout.tsx`); login em `app/admin/(auth)` — fora do guard, sem loop
