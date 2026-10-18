@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
@@ -6,6 +6,7 @@ import { RolesGuard } from '../guards/roles.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { AdminService } from './admin.service';
 import { AdminListProfessionalsDto } from './dto/admin-list-professionals.dto';
+import { AdminCreateProfessionalDto } from './dto/admin-create-professional.dto';
 
 /*
  * ============================================================
@@ -48,5 +49,20 @@ export class AdminController {
   @Get('professionals')
   listProfessionals(@Query() query: AdminListProfessionalsDto) {
     return this.adminService.listProfessionals(query);
+  }
+
+  /*
+   * ============================================================
+   * Primeira operação de escrita do backoffice: cria 1 Professional
+   * + 1 User PROFESSIONAL numa única transação (nested create no
+   * service). Mesma cadeia de guards da listagem. Controller fino.
+   * POST com criação bem-sucedida → 201 (status padrão do Nest).
+   * ============================================================
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Post('professionals')
+  createProfessional(@Body() dto: AdminCreateProfessionalDto) {
+    return this.adminService.createProfessional(dto);
   }
 }
