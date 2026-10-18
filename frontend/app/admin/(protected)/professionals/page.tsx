@@ -1,7 +1,9 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { Plus } from 'lucide-react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -75,7 +77,15 @@ export default function AdminProfessionalsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-gray-900">Profissionais</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-gray-900">Profissionais</h1>
+        <Button asChild size="sm">
+          <Link href="/admin/professionals/new">
+            <Plus className="h-4 w-4" />
+            Novo profissional
+          </Link>
+        </Button>
+      </div>
 
       <Input
         placeholder="Buscar por nome, slug ou email..."

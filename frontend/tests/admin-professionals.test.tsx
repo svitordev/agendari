@@ -1,9 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import type { ReactNode } from 'react';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => '/admin/professionals',
+}));
+
+vi.mock('next/link', () => ({
+  default: ({ href, children }: { href: string; children?: ReactNode }) => (
+    <a href={href}>{children}</a>
+  ),
 }));
 
 vi.mock('@/lib/api', () => ({

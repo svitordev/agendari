@@ -108,3 +108,32 @@ export interface AdminProfessionalsResponse {
   limit: number;
   offset: number;
 }
+
+// Payload de criação — exatamente os 6 campos do DTO do backend.
+// role/ids/timestamps NÃO vão no body (o backend força role=PROFESSIONAL).
+export interface AdminCreateProfessionalPayload {
+  name: string;
+  slug: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  password: string;
+}
+
+export interface AdminCreateProfessionalResponse {
+  professional: {
+    id: string;
+    slug: string;
+    name: string;
+    createdAt: string;
+  };
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: 'PROFESSIONAL';
+    professionalId: string;
+    createdAt: string;
+  };
+}
