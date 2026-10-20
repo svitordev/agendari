@@ -17,7 +17,8 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 - [x] Backoffice ADMIN read-only: login ADMIN + listagem paginada de profissionais (f420ac0)
 - [x] Backend ADMIN cria Professional + User atomicamente (cfc4ad2)
 - [x] Frontend ADMIN de criação: formulário /admin/professionals/new integrado ao POST (d7c81d8)
-- [ ] CRUD completo de profissionais pelo ADMIN (edição, suspensão/reativação, exclusão) — ainda pendente
+- [x] Backend ADMIN de edição: GET individual + PATCH completo (5 campos), nested write atômica Professional + User (98f9a46) — tela de edição pendente
+- [ ] CRUD completo de profissionais pelo ADMIN (edição end-to-end via UI, suspensão/reativação, exclusão) — ainda pendente
 - [ ] Correções de segurança identificadas na auditoria (ver abaixo)
 
 ### Fase 2 (SaaS) — Planejada
@@ -46,7 +47,7 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 | appointments | CRUD + rotas públicas (criação, consulta por telefone, cancelamento) |
 | services | CRUD ⚠️ SEM GUARDS |
 | availabilities | CRUD completo com guards + exceções + múltiplos períodos |
-| admin | RBAC (@Roles ADMIN): me, listagem read-only, criação Professional + User |
+| admin | RBAC (@Roles ADMIN): me, listagem read-only, criação Professional + User, edição (GET individual + PATCH completo de 5 campos; password/role fora) |
 | prisma | PrismaService @Global |
 
 ## Multi-tenant — Estado Atual

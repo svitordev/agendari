@@ -49,7 +49,7 @@ pex-agendamento/
 | appointments | POST /appointments, GET /appointments/available, GET /appointments/by-phone, PATCH /appointments/:id/cancel-public, GET/PATCH/DELETE /appointments/* | parcial | CRUD + rotas públicas |
 | services | POST/GET/PATCH/DELETE /services/* | ❌ | CRUD serviços ⚠️ sem guard |
 | availabilities | CRUD completo + exceções + períodos | ✅ | Disponibilidade com guards |
-| admin | GET /admin/me, GET /admin/professionals, POST /admin/professionals | ✅ | RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`); listagem read-only com paginação/search + criação de Professional + User (nested write, role forçada PROFESSIONAL) — consumida pelo backoffice frontend |
+| admin | GET /admin/me, GET /admin/professionals, GET /admin/professionals/:id, POST /admin/professionals, PATCH /admin/professionals/:id | ✅ | RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`); listagem read-only com paginação/search + criação de Professional + User (nested write, role forçada PROFESSIONAL) + edição administrativa (GET individual + PATCH completo de 5 campos; password/role fora) — criação consumida pelo backoffice frontend; tela de edição pendente |
 
 ### Rotas Frontend
 
@@ -107,6 +107,6 @@ cd frontend && npm run dev
 - Backend usa `strictNullChecks: false` — **não alterar automaticamente** (migração planejada)
 - `.env` está em `.gitignore` — **nunca commitar**
 - JWT_SECRET é **obrigatório** — `requireJwtSecret()` em `main.ts` falha se ausente/ vazio
-- Backend: `npm test` roda Jest (128 testes, Prisma mockado, sem banco real)
+- Backend: `npm test` roda Jest (164 testes, Prisma mockado, sem banco real)
 - Frontend: `npm run test` roda Vitest (38 testes, 6 suítes, mocks — sem backend real)
 - Documentação detalhada: ver `PROJETO.md` e `docs/ARQUITETURA.md`

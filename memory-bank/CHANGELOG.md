@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 2026-10-20 — Backend ADMIN: edição administrativa de profissionais (commit 98f9a46)
+
+- **Novas rotas**: `GET /admin/professionals/:id` + `PATCH /admin/professionals/:id` — `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)`; sem JWT → 401 · PROFESSIONAL → 403 · ADMIN → permitido. Somente backend — tela de edição ainda pendente
+- **GET individual**: response `{ professional: { id, name, slug, createdAt, updatedAt }, user: { id, email, firstName, lastName, role, createdAt, updatedAt } | null }` — select explícito, password nunca retorna; inexistente → 404 "Profissional não encontrado."; Professional sem User → 200 com `user=null` (a tela futura trata)
+- **PATCH**: completo (não parcial) — exatamente 5 campos obrigatórios (`name`, `slug`, `email`, `firstName`, `lastName`); `role`/`password`/`professionalId`/`userId`/`id`/timestamps no body → 400 via `forbidNonWhitelisted`; password e role não são alterados por esta rota
+- **Precheck**: Professional inexistente → 404; Professional + `user=null` → 409 "Este profissional não possui usuário associado." — nenhuma escrita antes dessas verificações (não cria User silenciosamente, não atualiza só o Professional)
+- **Atomicidade**: uma única nested write Prisma (`professional.update` com `user.update` aninhado); os testes validam essa composição estruturalmente — não afirmam rollback real do PostgreSQL
+- **Conflitos**: `P2002` → 409 com mensagens seguras (email → "E-mail já cadastrado." · slug → "Slug já cadastrado." · target desconhecido → 409 genérico) — a constraint unique é a autoridade, sem precheck de email/slug; `P2025` residual pós-precheck (concorrência/inconsistência — causa não distinguível de forma robusta, sem parsing de message) → 409 genérico "O cadastro foi alterado durante a operação. Recarregue e tente novamente."; outros erros não são mascarados
+- **Riscos operacionais**: alterar slug muda a URL pública do profissional (sem redirect automático do slug antigo — dívida operacional, não bug bloqueante); alterar o email muda a credencial de login do profissional; sem confirmação por email nesta versão
+- **Testes**: `admin-edit-professional.spec.ts` (36 novos — cadeia real de guards + ValidationPipe real, Prisma mockado, sem banco real); admin **82/82** (4 suítes); suíte completa backend **164/164** (15 suítes); `npm run build` PASS; frontend inalterado (38/38)
+- **Sem mudança**: schema Prisma (nenhuma migration), rotas públicas, auth existente, frontend
+- **Pendente (não implementado)**: frontend de edição (`/admin/professionals/[id]/edit` + ação "Editar" na listagem), edição end-to-end via UI, suspensão/reativação, exclusão, reset de senha, alteração de role, pagamentos, auditoria, métricas avançadas
+- **Commit**: `98f9a46` — `feat(admin): add professional edit endpoints`
+
 ## 2026-10-18 — Frontend ADMIN: formulário de criação de profissional (commit d7c81d8)
 
 - **Nova rota**: `/admin/professionals/new` — dentro do route group `(protected)`, herda o `AdminRoute` existente; sem guard novo, sem auth paralelo, sem cliente HTTP paralelo

@@ -14,7 +14,7 @@ Auditoria completa realizada em 2026-08-27 (~70 arquivos verificados).
 | **appointments** | appointments.controller, appointments.service, create-appointment.dto, update-status.dto, cancel-public.dto | CRUD + rotas públicas. Business logic de conflitos, transições de status, ownership. |
 | **services** | services.controller, services.service, create-service.dto, update-service.dto | CRUD ⚠️ sem guards — ver PROJETO.md RISCO C1 |
 | **availabilities** | availabilities.controller, availabilities.service, 6 DTOs | CRUD completo + exceções + múltiplos períodos. Todos com guards. |
-| **admin** | admin.controller, admin.module, admin.service, dto, admin-create-professional.dto | RBAC (v1.2): GET /admin/me + GET /admin/professionals (listagem read-only) + POST /admin/professionals (criação Professional + User) com @Roles(Role.ADMIN). |
+| **admin** | admin.controller, admin.module, admin.service, dto, admin-create-professional.dto, admin-update-professional.dto | RBAC (v1.2): GET /admin/me + GET /admin/professionals (listagem read-only) + POST /admin/professionals (criação Professional + User) + GET/PATCH /admin/professionals/:id (edição) com @Roles(Role.ADMIN). |
 | **prisma** | prisma.module, prisma.service | PrismaService @Global() |
 
 ### Validação Global
@@ -96,6 +96,38 @@ Professional + User (role PROFESSIONAL)
 - **Frontend**: formulário em `/admin/professionals/new` (d7c81d8) — sem guard/auth/cliente HTTP paralelos; `RolesGuard` continua sendo a boundary real de autorização
 - **Safe smoke em produção (backend, 2026-10-18)**: POST sem JWT → 401 · POST como PROFESSIONAL → 403 · ADMIN + DTO inválido → 400 (role extra rejeitada) · GETs ADMIN → 200 · nenhuma criação inesperada. Primeiro 201 real ainda não executado em produção
 - **Sem mudança**: schema Prisma (nenhuma migration), auth público, professionals.service, rotas públicas
+
+### Edição administrativa GET/PATCH /admin/professionals/:id (backend desde 2026-10-20, 98f9a46)
+```
+ADMIN
+  ↓
+GET /admin/professionals/:id
+  ↓
+AdminService.getProfessional
+  ↓
+Prisma findUnique (select explícito)
+  ↓
+{ professional, user | null } — sem password
+```
+```
+ADMIN
+  ↓
+PATCH /admin/professionals/:id
+  ↓
+precheck findUnique (Professional/User)
+  ↓
+professional.update
+  └── user.update aninhado
+```
+- **Proteção**: `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)` em ambas — PROFESSIONAL → 403 · sem JWT → 401 · ADMIN → permitido. Não são rotas públicas
+- **GET**: response `{ professional: { id, name, slug, createdAt, updatedAt }, user: { id, email, firstName, lastName, role, createdAt, updatedAt } | null }` — select explícito, password nunca retorna; inexistente → 404 "Profissional não encontrado."; Professional sem User → 200 com `user: null` (a tela futura trata)
+- **PATCH**: completo (não parcial) — exatamente 5 campos obrigatórios (`name`, `slug`, `email`, `firstName`, `lastName`); `role`/`password`/`professionalId`/`userId`/`id`/timestamps no body → 400 via `forbidNonWhitelisted`; password e role não são alterados por esta rota
+- **Precheck**: Professional inexistente → 404; Professional existe + `user=null` → 409 "Este profissional não possui usuário associado." — nenhuma escrita antes dessas verificações (não cria User silenciosamente, não atualiza só o Professional)
+- **Atomicidade**: uma única nested write Prisma (`professional.update` com `user.update` aninhado); os testes validam essa composição estruturalmente — não afirmam rollback real do PostgreSQL
+- **Conflitos**: `P2002` → 409 com mensagens seguras (email → "E-mail já cadastrado." · slug → "Slug já cadastrado." · target desconhecido → 409 genérico) — a constraint unique é a autoridade, sem precheck de email/slug; `P2025` residual pós-precheck (concorrência/inconsistência — causa não distinguível de forma robusta, sem parsing de message) → 409 genérico "O cadastro foi alterado durante a operação. Recarregue e tente novamente."; outros erros seguem o tratamento normal
+- **Slug**: o ADMIN pode alterar o slug — backend sem normalização, apenas valida `^[a-z0-9-]+$`; alterar o slug muda a URL pública do profissional (sem redirect automático do slug antigo — dívida operacional, não bug bloqueante)
+- **Email**: o ADMIN pode alterar o email do User associado — isso altera a credencial de login do profissional; sem confirmação por email nesta versão
+- **Testes**: `admin-edit-professional.spec.ts` (36 cenários — cadeia real de guards + ValidationPipe real, Prisma mockado, sem banco real); admin 82/82 (4 suítes); suíte completa 164/164 (15 suítes); `npm run build` PASS
 
 ### Ownership por Módulo
 | Módulo | Ownership | Observação |
@@ -213,7 +245,7 @@ GET /admin/professionals
 ```
 - Guard frontend = UX; backend (`RolesGuard`) = boundary real de autorização
 - Não-ADMIN em `/admin/login`: sessão removida, acesso recusado, permanece na página
-- Criação já existe ponta a ponta: backend (`POST /admin/professionals`, cfc4ad2) + formulário `/admin/professionals/new` (d7c81d8 — ver seção "Criação administrativa"); edição/suspensão/exclusão pendentes
+- Criação já existe ponta a ponta: backend (`POST /admin/professionals`, cfc4ad2) + formulário `/admin/professionals/new` (d7c81d8 — ver seção "Criação administrativa"); edição pronta SOMENTE no backend (`GET`/`PATCH /admin/professionals/:id`, 98f9a46 — ver seção "Edição administrativa"), tela de edição pendente; suspensão/exclusão pendentes
 
 ## Pontos de Atenção
 Ver PROJETO.md → "Lista Priorizada de Problemas" para detalhes.
