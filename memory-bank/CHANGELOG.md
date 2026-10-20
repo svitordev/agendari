@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 2026-10-18 — Frontend ADMIN: formulário de criação de profissional (commit d7c81d8)
+
+- **Nova rota**: `/admin/professionals/new` — dentro do route group `(protected)`, herda o `AdminRoute` existente; sem guard novo, sem auth paralelo, sem cliente HTTP paralelo
+- **Formulário** (react-hook-form): 6 campos — nome profissional, slug, e-mail, primeiro nome, sobrenome, senha inicial
+- **Slug**: sugerido a partir do nome enquanto nunca editado manualmente; sugestão é editável e, após edição manual, mudanças no nome não sobrescrevem o slug. Isso é APENAS conveniência de UX do frontend — o backend **não** normaliza slug, apenas valida o formato permitido
+- **Senha inicial**: definida manualmente pelo ADMIN (mín. 8 no frontend; backend autoridade); enviada no POST; não persistida nem exibida pelo frontend (sem toast/console/storage); backend aplica bcrypt antes de salvar
+- **Payload**: exatamente os 6 campos do contrato — sem role, professionalId, ids ou timestamps; backend continua forçando `role = PROFESSIONAL`
+- **Erros**: 400 → validação legível · 409 e-mail → erro no campo e-mail · 409 slug → erro no campo slug · 409 desconhecido → erro geral seguro · 401 → interceptor ADMIN existente · 403 → acesso negado sem logout indevido · 5xx/rede → erro genérico com retry
+- **Sucesso**: 201 → toast "Profissional criado com sucesso." → navegação para `/admin/professionals`; proteção contra duplo submit; botão "Novo profissional" adicionado na listagem
+- **Testes**: `tests/admin-create-professional.test.tsx` (20 novos — Vitest + Testing Library, mocks, zero backend real); frontend total **38/38** (6 suítes); `npm run build` PASS; rota registrada; nenhuma dependência nova
+- **Safe smoke backend em produção (2026-10-18)**: POST sem JWT → 401 · POST como PROFESSIONAL → 403 · ADMIN + DTO inválido → 400 (role extra rejeitada) · GETs ADMIN → 200 · nenhuma criação inesperada. Primeiro 201 real ainda não executado em produção (reservado para um profissional verdadeiro)
+- **Dívidas mantidas**: whitespace-only em alguns campos do backend (não bloqueante); CRUD administrativo restante pendente
+- **Pendente (não implementado)**: edição, suspensão/reativação, exclusão, alteração de role/senha, pagamentos, auditoria, métricas
+- **Commit**: `d7c81d8` — `feat(admin): add professional creation form`
+
 ## 2026-10-18 — Criação administrativa Professional + User (commit cfc4ad2)
 
 - **Nova rota**: `POST /admin/professionals` — `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)`; ADMIN → 201 · PROFESSIONAL → 403 · sem JWT → 401. Primeira operação de escrita do backoffice

@@ -15,7 +15,8 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 - [x] Confirmação/cancelamento de agendamentos
 - [x] Consulta pública de agendamentos por telefone
 - [x] Backoffice ADMIN read-only: login ADMIN + listagem paginada de profissionais (f420ac0)
-- [x] Backend ADMIN cria Professional + User atomicamente (cfc4ad2) — tela de criação no frontend ainda pendente
+- [x] Backend ADMIN cria Professional + User atomicamente (cfc4ad2)
+- [x] Frontend ADMIN de criação: formulário /admin/professionals/new integrado ao POST (d7c81d8)
 - [ ] CRUD completo de profissionais pelo ADMIN (edição, suspensão/reativação, exclusão) — ainda pendente
 - [ ] Correções de segurança identificadas na auditoria (ver abaixo)
 

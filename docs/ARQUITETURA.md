@@ -70,11 +70,13 @@ Prisma findMany + count
 - Ordenação determinística: `createdAt desc` + `id asc`; `total` vem de `count` com o mesmo `where`
 - Rota pública `GET /professionals` permanece separada e inalterada; nenhum bypass ADMIN nas rotas antigas
 
-### Criação administrativa POST /admin/professionals (desde 2026-10-18, cfc4ad2)
+### Criação administrativa POST /admin/professionals (backend desde 2026-10-18, cfc4ad2; frontend d7c81d8)
 ```
 ADMIN
   ↓
-POST /admin/professionals
+/admin/professionals/new (route group (protected) → AdminRoute)
+  ↓
+react-hook-form → api.post('/admin/professionals') (mesmo cliente Axios)
   ↓
 AdminService.createProfessional
   ↓
@@ -91,7 +93,8 @@ Professional + User (role PROFESSIONAL)
 - **Resposta 201**: `{ professional: { id, slug, name, createdAt }, user: { id, email, firstName, lastName, role, professionalId, createdAt } }` — sem password
 - **Proteção**: `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)` — PROFESSIONAL → 403 · sem JWT → 401
 - **Dívida não bloqueante (existente)**: `name`/`firstName`/`lastName` seguem o padrão atual de `@IsNotEmpty` — whitespace-only passa; não corrigido nesta entrega
-- **Frontend**: tela de criação ainda não existe — backend primeiro; `RolesGuard` continua sendo a boundary real de autorização
+- **Frontend**: formulário em `/admin/professionals/new` (d7c81d8) — sem guard/auth/cliente HTTP paralelos; `RolesGuard` continua sendo a boundary real de autorização
+- **Safe smoke em produção (backend, 2026-10-18)**: POST sem JWT → 401 · POST como PROFESSIONAL → 403 · ADMIN + DTO inválido → 400 (role extra rejeitada) · GETs ADMIN → 200 · nenhuma criação inesperada. Primeiro 201 real ainda não executado em produção
 - **Sem mudança**: schema Prisma (nenhuma migration), auth público, professionals.service, rotas públicas
 
 ### Ownership por Módulo
@@ -119,7 +122,8 @@ Professional + User (role PROFESSIONAL)
 | `/dashboard/profile` | ✅ | Perfil + theme colors |
 | `/admin/login` | ❌ | Login do backoffice (somente ADMIN conclui o acesso) |
 | `/admin` | ADMIN | Painel administrativo read-only |
-| `/admin/professionals` | ADMIN | Listagem read-only de profissionais |
+| `/admin/professionals` | ADMIN | Listagem read-only de profissionais + botão "Novo profissional" |
+| `/admin/professionals/new` | ADMIN | Formulário de criação de profissional (d7c81d8) |
 
 ### Autenticação
 - `useAuth()` hook com localStorage para JWT
@@ -127,7 +131,7 @@ Professional + User (role PROFESSIONAL)
 - ProtectedRoute wrapper no dashboard layout
 - ⚠️ localStorage vulnerável a XSS — ver PROJETO.md A2
 
-### Backoffice ADMIN — frontend (desde 2026-10-16, f420ac0) — read-only
+### Backoffice ADMIN — frontend (read-only desde 2026-10-16, f420ac0; criação desde 2026-10-18, d7c81d8)
 - Route groups do App Router: `app/admin/(auth)` (login, SEM guard) e `app/admin/(protected)` (layout com `AdminRoute`) — route groups não aparecem na URL
 - Reutiliza o mesmo `useAuth()`, o mesmo cliente Axios e o mesmo `POST /auth/login` — sem segundo AuthContext e sem segundo cliente HTTP
 - `/admin/login`: ADMIN → `/admin`; não-ADMIN → sessão removida imediatamente, acesso recusado, permanece na página
@@ -135,9 +139,10 @@ Professional + User (role PROFESSIONAL)
 - `AdminRoute` (frontend) = guard de UX; o backend (`RolesGuard` + `@Roles(Role.ADMIN)`) continua sendo a boundary real de autorização
 - Interceptor 401: em `/admin/*` → remove token e redireciona para `/admin/login`; **exceção**: já estando em `/admin/login`, remove o token mas NÃO redireciona/recarrega (permite exibir erro de credenciais do próprio login); fora da área ADMIN → `/login` (inalterado)
 - Logout: ADMIN → `/admin/login`; profissional → `/login` (inalterado)
-- `/admin/professionals`: tabela read-only, search com debounce 400 ms (trim, parâmetro omitido quando vazio, mudança de termo reseta offset), paginação Anterior/Próxima (limit 20), skeleton/empty state/erro com retry, `user=null` seguro, resposta obsoleta descartada (guarda de sequência)
+- `/admin/professionals`: tabela read-only, search com debounce 400 ms (trim, parâmetro omitido quando vazio, mudança de termo reseta offset), paginação Anterior/Próxima (limit 20), skeleton/empty state/erro com retry, `user=null` seguro, resposta obsoleta descartada (guarda de sequência), botão "Novo profissional" → `/admin/professionals/new`
+- `/admin/professionals/new` (d7c81d8): formulário react-hook-form com os 6 campos do contrato (`name`, `slug`, `email`, `firstName`, `lastName`, `password`); slug sugerido a partir do nome enquanto nunca editado manualmente (conveniência de UX — o backend **não** normaliza, apenas valida o formato); após edição manual o nome não sobrescreve o slug; payload exatamente os 6 campos (sem role/ids/timestamps — backend força PROFESSIONAL); senha inicial manual (≥ 8 no frontend; backend autoridade), enviada no POST e não persistida/exibida pelo frontend; 201 → toast + volta à listagem; 400 legível; 409 mapeado ao campo (email/slug) ou geral; 403 sem logout; 5xx/rede com retry; duplo submit bloqueado
 - Dívida não bloqueante: `AdminRoute` e o shell do layout usam instâncias independentes de `useAuth()` → dois `GET /auth/profile` por navegação na área protegida (sem impacto de segurança; não corrigido nesta entrega)
-- Testes frontend: Vitest + Testing Library (jsdom), 5 suítes, 18/18 passando, sem backend real
+- Testes frontend: Vitest + Testing Library (jsdom), 6 suítes, 38/38 passando, sem backend real (mocks)
 
 ## Banco de Dados (PostgreSQL + Prisma 6)
 
@@ -208,7 +213,7 @@ GET /admin/professionals
 ```
 - Guard frontend = UX; backend (`RolesGuard`) = boundary real de autorização
 - Não-ADMIN em `/admin/login`: sessão removida, acesso recusado, permanece na página
-- Criação via backend já existe (`POST /admin/professionals`, cfc4ad2 — ver seção "Criação administrativa"); tela de criação no frontend ainda pendente; edição/suspensão/exclusão pendentes
+- Criação já existe ponta a ponta: backend (`POST /admin/professionals`, cfc4ad2) + formulário `/admin/professionals/new` (d7c81d8 — ver seção "Criação administrativa"); edição/suspensão/exclusão pendentes
 
 ## Pontos de Atenção
 Ver PROJETO.md → "Lista Priorizada de Problemas" para detalhes.

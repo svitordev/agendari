@@ -62,6 +62,7 @@ pex-agendamento/
 | `/admin/login` | público | Login do backoffice (somente ADMIN conclui o acesso) |
 | `/admin` | ADMIN | Painel administrativo read-only |
 | `/admin/professionals` | ADMIN | Listagem read-only de profissionais |
+| `/admin/professionals/new` | ADMIN | Criação de profissional (formulário; backend força role PROFESSIONAL) |
 
 ## Configuração
 
@@ -107,5 +108,5 @@ cd frontend && npm run dev
 - `.env` está em `.gitignore` — **nunca commitar**
 - JWT_SECRET é **obrigatório** — `requireJwtSecret()` em `main.ts` falha se ausente/ vazio
 - Backend: `npm test` roda Jest (128 testes, Prisma mockado, sem banco real)
-- Frontend: `npm run test` roda Vitest (18 testes, sem backend real)
+- Frontend: `npm run test` roda Vitest (38 testes, 6 suítes, mocks — sem backend real)
 - Documentação detalhada: ver `PROJETO.md` e `docs/ARQUITETURA.md`
