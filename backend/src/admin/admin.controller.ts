@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
@@ -7,6 +7,7 @@ import { Roles } from '../decorators/roles.decorator';
 import { AdminService } from './admin.service';
 import { AdminListProfessionalsDto } from './dto/admin-list-professionals.dto';
 import { AdminCreateProfessionalDto } from './dto/admin-create-professional.dto';
+import { AdminUpdateProfessionalDto } from './dto/admin-update-professional.dto';
 
 /*
  * ============================================================
@@ -64,5 +65,34 @@ export class AdminController {
   @Post('professionals')
   createProfessional(@Body() dto: AdminCreateProfessionalDto) {
     return this.adminService.createProfessional(dto);
+  }
+
+  /*
+   * ============================================================
+   * Edição administrativa. Mesma cadeia de guards das demais
+   * rotas admin: JwtAuthGuard popula req.user (role do banco),
+   * RolesGuard aplica @Roles. Controller fino: :id na URL é
+   * apenas identificador do alvo — a autoridade é o service.
+   *
+   * GET → fonte da tela de edição (404 semântico, sem password).
+   * PATCH → PATCH completo (os 5 campos sempre); nested write
+   * única no service; role/password/ids/timestamps fora do DTO.
+   * ============================================================
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Get('professionals/:id')
+  getProfessional(@Param('id') id: string) {
+    return this.adminService.getProfessional(id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Patch('professionals/:id')
+  updateProfessional(
+    @Param('id') id: string,
+    @Body() dto: AdminUpdateProfessionalDto,
+  ) {
+    return this.adminService.updateProfessional(id, dto);
   }
 }
