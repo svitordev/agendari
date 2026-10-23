@@ -1,6 +1,7 @@
-import { Injectable, ConflictException, UnauthorizedException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, ForbiddenException, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { ProfessionalStatus, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -69,6 +70,22 @@ export class AuthService {
     const isPasswordValid = await bcrypt.compare(dto.password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Credenciais inválidas.');
+    }
+
+    /*
+     * Suspensão verificada SOMENTE após a senha correta — antes
+     * disso o login viraria enumeração de status (revelaria contas
+     * suspensas a quem não sabe a senha). Credenciais inválidas
+     * mantêm o comportamento atual (401 genérico). ADMIN e User
+     * sem Professional não são afetados.
+     */
+    if (
+      user.role === Role.PROFESSIONAL &&
+      user.professional?.status === ProfessionalStatus.SUSPENDED
+    ) {
+      throw new ForbiddenException(
+        'Conta suspensa. Entre em contato com o administrador.',
+      );
     }
 
     // Gerar token JWT

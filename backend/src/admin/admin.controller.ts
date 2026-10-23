@@ -8,6 +8,7 @@ import { AdminService } from './admin.service';
 import { AdminListProfessionalsDto } from './dto/admin-list-professionals.dto';
 import { AdminCreateProfessionalDto } from './dto/admin-create-professional.dto';
 import { AdminUpdateProfessionalDto } from './dto/admin-update-professional.dto';
+import { AdminUpdateProfessionalStatusDto } from './dto/admin-update-professional-status.dto';
 
 /*
  * ============================================================
@@ -94,5 +95,23 @@ export class AdminController {
     @Body() dto: AdminUpdateProfessionalDto,
   ) {
     return this.adminService.updateProfessional(id, dto);
+  }
+
+  /*
+   * ============================================================
+   * Mudança de estado operacional (suspensão/reativação).
+   * Endpoint separado da edição de dados de propósito: estado
+   * tem DTO e responsabilidade próprios. Idempotente no service.
+   * Mesma cadeia de guards das demais rotas admin.
+   * ============================================================
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Patch('professionals/:id/status')
+  updateProfessionalStatus(
+    @Param('id') id: string,
+    @Body() dto: AdminUpdateProfessionalStatusDto,
+  ) {
+    return this.adminService.updateProfessionalStatus(id, dto);
   }
 }

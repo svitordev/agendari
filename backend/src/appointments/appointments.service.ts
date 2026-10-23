@@ -1,11 +1,16 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 
-import { AppointmentCancelledBy, AppointmentStatus } from '@prisma/client';
+import {
+  AppointmentCancelledBy,
+  AppointmentStatus,
+  ProfessionalStatus,
+} from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
@@ -178,6 +183,18 @@ export class AppointmentsService {
       throw new NotFoundException('Profissional não encontrado.');
     }
 
+    /*
+     * Professional suspenso não aceita NOVOS agendamentos —
+     * backend é a autoridade, o frontend não é confiável.
+     * Zero Appointment criado; appointments existentes não são
+     * afetados (suspensão não cancela histórico).
+     */
+    if (professional.status === ProfessionalStatus.SUSPENDED) {
+      throw new ForbiddenException(
+        'Este profissional não está aceitando novos agendamentos no momento.',
+      );
+    }
+
     const service = await this.prisma.service.findFirst({
       where: {
         id: dto.serviceId,
@@ -329,6 +346,25 @@ export class AppointmentsService {
       throw new BadRequestException(
         'Data, profissional e serviço são obrigatórios.',
       );
+    }
+
+    /*
+     * Professional suspenso não mostra slots — resposta vazia no
+     * mesmo shape já usado pelo endpoint quando o dia não atende.
+     * Availability não é modificada; histórico permanece intacto.
+     */
+    const professional = await this.prisma.professional.findUnique({
+      where: {
+        id: professionalId,
+      },
+    });
+
+    if (professional?.status === ProfessionalStatus.SUSPENDED) {
+      return {
+        available: false,
+        slots: [],
+        message: 'Este profissional não está aceitando novos agendamentos no momento.',
+      };
     }
 
     const service = await this.prisma.service.findFirst({

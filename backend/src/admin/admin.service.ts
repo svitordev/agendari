@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AdminListProfessionalsDto } from './dto/admin-list-professionals.dto';
 import { AdminCreateProfessionalDto } from './dto/admin-create-professional.dto';
 import { AdminUpdateProfessionalDto } from './dto/admin-update-professional.dto';
+import { AdminUpdateProfessionalStatusDto } from './dto/admin-update-professional-status.dto';
 
 const DEFAULT_LIMIT = 20;
 const DEFAULT_OFFSET = 0;
@@ -59,6 +60,7 @@ export class AdminService {
           id: true,
           slug: true,
           name: true,
+          status: true,
           avatarUrl: true,
           createdAt: true,
           updatedAt: true,
@@ -121,6 +123,7 @@ export class AdminService {
           id: true,
           slug: true,
           name: true,
+          status: true,
           createdAt: true,
           user: {
             select: {
@@ -141,6 +144,7 @@ export class AdminService {
           id: created.id,
           slug: created.slug,
           name: created.name,
+          status: created.status,
           createdAt: created.createdAt,
         },
         user: created.user,
@@ -189,6 +193,7 @@ export class AdminService {
         id: true,
         name: true,
         slug: true,
+        status: true,
         createdAt: true,
         updatedAt: true,
         user: {
@@ -265,6 +270,7 @@ export class AdminService {
           id: true,
           name: true,
           slug: true,
+          status: true,
           createdAt: true,
           updatedAt: true,
           user: {
@@ -317,6 +323,110 @@ export class AdminService {
         // Prisma não é contrato estável; parsing de message é
         // frágil) → conflito genérico, sem afirmar causa e sem
         // vazar internals.
+        throw new ConflictException(
+          'O cadastro foi alterado durante a operação. Recarregue e tente novamente.',
+        );
+      }
+
+      // Outros erros seguem o tratamento normal do Nest.
+      throw err;
+    }
+  }
+
+  /*
+   * ============================================================
+   * Mudança de estado operacional (PATCH /admin/professionals/:id/status).
+   *
+   * Responsabilidade separada da edição de dados — o DTO de
+   * edição (5 campos) NÃO recebe status, e este DTO não toca
+   * nos campos de dados.
+   *
+   * Idempotente: se o estado atual já é o pedido, retorna 200
+   * com o estado atual SEM chamar update — updatedAt não é
+   * alterado artificialmente e double action não gera escrita.
+   *
+   * Professional SEM User funciona normalmente — a suspensão é
+   * do tenant (Professional), não do login; não exige User.
+   *
+   * P2025 residual (corrida entre pre-check e escrita) → 409
+   * genérico, mesmo fallback das demais escritas admin.
+   * P2002 não é esperado aqui — status não é unique.
+   * ============================================================
+   */
+  async updateProfessionalStatus(
+    id: string,
+    dto: AdminUpdateProfessionalStatusDto,
+  ) {
+    const existing = await this.prisma.professional.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Profissional não encontrado.');
+    }
+
+    const { user, ...professional } = existing;
+
+    // No-op idempotente: já está no estado pedido → nenhuma escrita.
+    if (professional.status === dto.status) {
+      return { professional, user };
+    }
+
+    try {
+      const updated = await this.prisma.professional.update({
+        where: { id },
+        data: { status: dto.status },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              role: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
+      });
+
+      const { user: updatedUser, ...updatedProfessional } = updated;
+
+      return { professional: updatedProfessional, user: updatedUser };
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2025'
+      ) {
+        // Fallback de corrida: o Professional pode ter deixado de
+        // existir entre o pre-check e a escrita → conflito genérico,
+        // sem afirmar causa e sem vazar internals.
         throw new ConflictException(
           'O cadastro foi alterado durante a operação. Recarregue e tente novamente.',
         );

@@ -34,22 +34,28 @@ enum Role {
   CUSTOMER
 }
 
+enum ProfessionalStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 // ============================================
 // PROFISSIONAIS (Multi-tenant ready)
 // ============================================
 
 model Professional {
-  id          String   @id @default(cuid())
-  slug        String   @unique // Link público: /professional/jessicasantana
+  id          String             @id @default(cuid())
+  slug        String             @unique // Link público: /professional/jessicasantana
   name        String
-  bio         String?  @db.Text
+  bio         String?            @db.Text
   avatarUrl   String?
   themeColors Json? // {"primary": "#FF69B4", "secondary": "#333"} - Customização visual SaaS
   instagram   String?
   facebook    String?
   whatsapp    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status      ProfessionalStatus @default(ACTIVE) // Estado operacional do tenant (fonte única — não duplicar em User)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
 
   // Relações
   user                   User?
