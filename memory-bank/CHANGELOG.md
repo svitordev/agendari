@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 2026-10-22 — Frontend ADMIN: tela de edição de profissional (commit 714037a)
+
+- **Nova rota**: `/admin/professionals/[id]/edit` — dentro do route group `(protected)`, herda o `AdminRoute` existente; sem guard novo, sem layout novo, sem cliente HTTP paralelo; Client Component com `params: Promise<{ id }>` (padrão Next.js 16 do projeto)
+- **Carregamento**: GET `/admin/professionals/:id` inicial preenche o formulário; loading com skeleton (nunca formulário vazio como se fosse dado real); resposta obsoleta do GET descartada por guarda de sequência (seqRef — coberta por teste)
+- **Formulário**: exatamente 5 campos editáveis (`name`, `slug`, `email`, `firstName`, `lastName`); password/role/ids/timestamps não são renderizados nem enviados; backend continua autoridade
+- **user=null**: aviso "Este profissional não possui usuário associado.", Salvar desabilitado, nenhum PATCH, nenhum User criado automaticamente, nenhum valor fictício
+- **Slug**: carregado exatamente como está, sem sugestão automática (mudar o nome não altera o slug); edição manual com aviso "Alterar o slug muda a URL pública do profissional." (sem redirect do slug antigo)
+- **Email**: editável com aviso "Alterar o e-mail muda a credencial usada pelo profissional para entrar."; senha não é alterada; sem confirmação por email nesta versão
+- **PATCH**: payload objeto explícito com exatamente os 5 campos (sem spread); duplo submit bloqueado (`isSubmitting`, botão "Salvando..."); 200 → toast + retorno à listagem (redirect apenas no sucesso)
+- **Erros**: GET 404 → estado dedicado · PATCH 404 → permanece na tela com formulário preenchido · 409 email/slug mapeados por mensagem exata para o campo · 409 user ausente e residual → erro geral · 409 desconhecido → fallback seguro · 403 sem logout · 5xx/rede → mensagem genérica + retry · 401 → interceptor existente
+- **Listagem**: ação "Editar" por linha → `/admin/professionals/{id}/edit`
+- **Testes**: `tests/admin-edit-professional.test.tsx` (27 novos — Vitest + Testing Library, mocks, zero backend real); suíte da listagem 10; frontend total **67/67** (7 suítes); `npm run build` PASS; rota registrada como dinâmica; nenhuma dependência nova
+- **Backend**: inalterado (endpoints de 98f9a46; 164/164, 15 suítes)
+- **Commit**: `714037a` — `feat(admin): add professional edit frontend`
+
 ## 2026-10-20 — Backend ADMIN: edição administrativa de profissionais (commit 98f9a46)
 
 - **Novas rotas**: `GET /admin/professionals/:id` + `PATCH /admin/professionals/:id` — `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)`; sem JWT → 401 · PROFESSIONAL → 403 · ADMIN → permitido. Somente backend — tela de edição ainda pendente

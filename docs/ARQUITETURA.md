@@ -156,6 +156,7 @@ professional.update
 | `/admin` | ADMIN | Painel administrativo read-only |
 | `/admin/professionals` | ADMIN | Listagem read-only de profissionais + botão "Novo profissional" |
 | `/admin/professionals/new` | ADMIN | Formulário de criação de profissional (d7c81d8) |
+| `/admin/professionals/[id]/edit` | ADMIN | Formulário de edição de profissional (714037a) |
 
 ### Autenticação
 - `useAuth()` hook com localStorage para JWT
@@ -163,7 +164,7 @@ professional.update
 - ProtectedRoute wrapper no dashboard layout
 - ⚠️ localStorage vulnerável a XSS — ver PROJETO.md A2
 
-### Backoffice ADMIN — frontend (read-only desde 2026-10-16, f420ac0; criação desde 2026-10-18, d7c81d8)
+### Backoffice ADMIN — frontend (read-only desde 2026-10-16, f420ac0; criação desde 2026-10-18, d7c81d8; edição desde 2026-10-22, 714037a)
 - Route groups do App Router: `app/admin/(auth)` (login, SEM guard) e `app/admin/(protected)` (layout com `AdminRoute`) — route groups não aparecem na URL
 - Reutiliza o mesmo `useAuth()`, o mesmo cliente Axios e o mesmo `POST /auth/login` — sem segundo AuthContext e sem segundo cliente HTTP
 - `/admin/login`: ADMIN → `/admin`; não-ADMIN → sessão removida imediatamente, acesso recusado, permanece na página
@@ -173,8 +174,11 @@ professional.update
 - Logout: ADMIN → `/admin/login`; profissional → `/login` (inalterado)
 - `/admin/professionals`: tabela read-only, search com debounce 400 ms (trim, parâmetro omitido quando vazio, mudança de termo reseta offset), paginação Anterior/Próxima (limit 20), skeleton/empty state/erro com retry, `user=null` seguro, resposta obsoleta descartada (guarda de sequência), botão "Novo profissional" → `/admin/professionals/new`
 - `/admin/professionals/new` (d7c81d8): formulário react-hook-form com os 6 campos do contrato (`name`, `slug`, `email`, `firstName`, `lastName`, `password`); slug sugerido a partir do nome enquanto nunca editado manualmente (conveniência de UX — o backend **não** normaliza, apenas valida o formato); após edição manual o nome não sobrescreve o slug; payload exatamente os 6 campos (sem role/ids/timestamps — backend força PROFESSIONAL); senha inicial manual (≥ 8 no frontend; backend autoridade), enviada no POST e não persistida/exibida pelo frontend; 201 → toast + volta à listagem; 400 legível; 409 mapeado ao campo (email/slug) ou geral; 403 sem logout; 5xx/rede com retry; duplo submit bloqueado
+- `/admin/professionals/[id]/edit` (714037a): Client Component dentro do grupo `(protected)` (herda o `AdminRoute` — sem guard novo, sem layout novo, sem cliente HTTP novo); `params: Promise<{ id }>` (padrão Next.js 16 do projeto). GET inicial `GET /admin/professionals/:id` preenche o formulário (react-hook-form) com exatamente 5 campos (`name`, `slug`, `email`, `firstName`, `lastName` — password/role/ids/timestamps não são renderizados nem enviados). Loading com skeleton (nunca formulário vazio fingindo dado); resposta obsoleta do GET descartada por guarda de sequência (seqRef — coberta por teste). Slug carregado exatamente como está, sem sugestão automática (mudar o nome não altera o slug) + aviso "Alterar o slug muda a URL pública do profissional."; email editável + aviso "Alterar o e-mail muda a credencial usada pelo profissional para entrar."; validações de UX idênticas ao DTO (obrigatórios, email formato, slug `^[a-z0-9-]+$`) — backend autoridade.
+- user=null: aviso "Este profissional não possui usuário associado.", Salvar desabilitado, nenhum PATCH possível, nenhum valor fictício, nenhum User criado automaticamente (backend manteria 409 se tentado).
+- PATCH: payload objeto explícito com exatamente os 5 campos (sem spread); duplo submit bloqueado (`isSubmitting`, botão "Salvando..." — teste com Promise pendente prova 1 única chamada). Erros: GET 404 → estado dedicado; PATCH 404 → permanece na tela com formulário preenchido; 409 email/slug mapeados por mensagem exata para o campo; 409 user ausente e 409 residual → erro geral; 409 desconhecido → fallback seguro; 403 sem logout; 5xx/rede → mensagem genérica + retry; 401 → interceptor existente. Redirect + toast apenas no 200. Tipos adicionados em `types/index.ts`: `AdminProfessionalDetails`, `AdminUpdateProfessionalPayload`, `AdminUpdateProfessionalResponse`.
 - Dívida não bloqueante: `AdminRoute` e o shell do layout usam instâncias independentes de `useAuth()` → dois `GET /auth/profile` por navegação na área protegida (sem impacto de segurança; não corrigido nesta entrega)
-- Testes frontend: Vitest + Testing Library (jsdom), 6 suítes, 38/38 passando, sem backend real (mocks)
+- Testes frontend: Vitest + Testing Library (jsdom), 7 suítes, 67/67 passando, sem backend real (mocks)
 
 ## Banco de Dados (PostgreSQL + Prisma 6)
 
@@ -245,7 +249,8 @@ GET /admin/professionals
 ```
 - Guard frontend = UX; backend (`RolesGuard`) = boundary real de autorização
 - Não-ADMIN em `/admin/login`: sessão removida, acesso recusado, permanece na página
-- Criação já existe ponta a ponta: backend (`POST /admin/professionals`, cfc4ad2) + formulário `/admin/professionals/new` (d7c81d8 — ver seção "Criação administrativa"); edição pronta SOMENTE no backend (`GET`/`PATCH /admin/professionals/:id`, 98f9a46 — ver seção "Edição administrativa"), tela de edição pendente; suspensão/exclusão pendentes
+- Criação já existe ponta a ponta: backend (`POST /admin/professionals`, cfc4ad2) + formulário `/admin/professionals/new` (d7c81d8 — ver seção "Criação administrativa")
+- Edição já existe ponta a ponta: backend (`GET`/`PATCH /admin/professionals/:id`, 98f9a46) + formulário `/admin/professionals/[id]/edit` com ação "Editar" na listagem (714037a — ver seção "Backoffice ADMIN — frontend"); suspensão/reativação/exclusão pendentes
 
 ## Pontos de Atenção
 Ver PROJETO.md → "Lista Priorizada de Problemas" para detalhes.

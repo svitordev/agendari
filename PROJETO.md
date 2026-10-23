@@ -17,8 +17,9 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 - [x] Backoffice ADMIN read-only: login ADMIN + listagem paginada de profissionais (f420ac0)
 - [x] Backend ADMIN cria Professional + User atomicamente (cfc4ad2)
 - [x] Frontend ADMIN de criação: formulário /admin/professionals/new integrado ao POST (d7c81d8)
-- [x] Backend ADMIN de edição: GET individual + PATCH completo (5 campos), nested write atômica Professional + User (98f9a46) — tela de edição pendente
-- [ ] CRUD completo de profissionais pelo ADMIN (edição end-to-end via UI, suspensão/reativação, exclusão) — ainda pendente
+- [x] Backend ADMIN de edição: GET individual + PATCH completo (5 campos), nested write atômica Professional + User (98f9a46)
+- [x] Frontend ADMIN de edição: rota /admin/professionals/[id]/edit + ação Editar na listagem — edição ADMIN end-to-end dos 5 campos permitidos (714037a)
+- [ ] CRUD completo de profissionais pelo ADMIN (suspensão/reativação, exclusão) — ainda pendente
 - [ ] Correções de segurança identificadas na auditoria (ver abaixo)
 
 ### Fase 2 (SaaS) — Planejada
