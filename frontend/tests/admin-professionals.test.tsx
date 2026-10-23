@@ -172,4 +172,28 @@ describe('/admin/professionals', () => {
     expect(screen.getByText('Ana Pro')).toBeInTheDocument(); // nova permanece
     expect(screen.queryByText('Sem User SA')).not.toBeInTheDocument(); // obsoleta descartada
   });
+
+  it('18. link Editar existe e usa o id da linha na rota de edição', async () => {
+    mockGet.mockResolvedValue({
+      data: { items: [itemComUser], total: 1, limit: 20, offset: 0 },
+    });
+    render(<AdminProfessionalsPage />);
+    await screen.findByText('Ana Pro');
+    expect(screen.getByRole('link', { name: /editar/i })).toHaveAttribute(
+      'href',
+      '/admin/professionals/p1/edit',
+    );
+  });
+
+  it('19. cada linha tem seu próprio link Editar (inclusive user=null)', async () => {
+    mockGet.mockResolvedValue({
+      data: { items: [itemComUser, itemSemUser], total: 2, limit: 20, offset: 0 },
+    });
+    render(<AdminProfessionalsPage />);
+    await screen.findByText('Ana Pro');
+    const hrefs = screen
+      .getAllByRole('link', { name: /editar/i })
+      .map((l) => l.getAttribute('href'));
+    expect(hrefs).toEqual(['/admin/professionals/p1/edit', '/admin/professionals/p2/edit']);
+  });
 });

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Plus } from 'lucide-react';
+import { Pencil, Plus } from 'lucide-react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -132,6 +132,7 @@ export default function AdminProfessionalsPage() {
                 <TableHead>Serviços</TableHead>
                 <TableHead>Agendamentos</TableHead>
                 <TableHead>Criado em</TableHead>
+                <TableHead>Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -158,6 +159,14 @@ export default function AdminProfessionalsPage() {
                   <TableCell>{p._count.appointments}</TableCell>
                   <TableCell className="text-gray-500">
                     {format(new Date(p.createdAt), 'dd/MM/yyyy', { locale: ptBR })}
+                  </TableCell>
+                  <TableCell>
+                    <Button asChild variant="ghost" size="sm">
+                      <Link href={`/admin/professionals/${p.id}/edit`}>
+                        <Pencil className="h-4 w-4" />
+                        Editar
+                      </Link>
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
