@@ -391,6 +391,14 @@ Then: Retorna 400 Bad Request
 
 ## Changelog
 
+### 2026-10-23 - Controles de segurança: suspensão de profissionais (commit 78bd46e)
+- JWT antigo não ignora suspensão: o estado é verificado no banco em cada request autenticada (JwtStrategy já consulta User+Professional); sem blacklist de tokens
+- Login valida a senha antes de revelar o estado da conta (senha errada em conta suspensa → 401 genérico — sem enumeração)
+- Backend é a autoridade de novo booking para Professional suspenso (POST /appointments → 403; available → vazio)
+- `status` não é mass-assignment no PATCH de edição (DTO separado; `forbidNonWhitelisted` → 400)
+- Auth/autorização do ADMIN permanece separada — ADMIN nunca é bloqueado pelo estado de suspensão
+- Testes: 47 cenários novos (admin status 23 · auth 11 · booking/público 13); backend 211/211 (18 suítes); migration `20261023000000_add_professional_status` versionada, ainda não aplicada em produção
+
 ### 2026-10-15 - SEC-001 corrigido de fato (commit cd0cd21)
 - [x] SEC-001: Ownership check em GET /professionals/:id — FIXED
   - A correção de 2026-09-16 havia sido revertida como colateral do R3 (ver nota no item 1 de "Próximos itens") — o finding estava real no pré-fix

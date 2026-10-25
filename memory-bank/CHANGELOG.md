@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 2026-10-23 — Backend ADMIN: suspensão/reativação de profissionais (commit 78bd46e)
+
+- **Modelo**: `enum ProfessionalStatus { ACTIVE SUSPENDED }` + `Professional.status @default(ACTIVE)` — fonte única de verdade operacional; nada no User; sem campos de auditoria (suspendedAt/reason) nesta versão
+- **Migration**: `20261023000000_add_professional_status` — aditiva (`CREATE TYPE` + `ADD COLUMN NOT NULL DEFAULT 'ACTIVE'`); registros existentes ficam ACTIVE; não destrutiva; **versionada, ainda NÃO aplicada em produção**
+- **Nova rota**: `PATCH /admin/professionals/:id/status` — `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)`; DTO separado (`AdminUpdateProfessionalStatusDto`, único campo `status`); o PATCH de edição continua somente com os 5 campos e rejeita `status` (400)
+- **Idempotência**: mesmo status → 200 sem escrita (`update` não é chamado; `updatedAt` preservado); mudança real altera somente `Professional.status`; user=null suportado (suspensão é do tenant; nenhum User criado automaticamente)
+- **Responses**: listagem/GET individual/criação/edição agora incluem `status` (password continua ausente); novo Professional nasce ACTIVE pelo default do banco (service não envia status controlável)
+- **Auth**: JwtStrategy (que já consulta o banco em cada request) bloqueia `Role.PROFESSIONAL` + `SUSPENDED` → 403 "Conta suspensa. Entre em contato com o administrador." — JWT antigo é bloqueado na próxima request (sem blacklist); login valida a senha ANTES de revelar suspensão (senha errada → 401 genérico — sem enumeração); ADMIN nunca bloqueado; reativado → acesso volta
+- **Booking**: `POST /appointments` para suspenso → 403 com mensagem segura, zero Appointment criado; `GET /appointments/available` para suspenso → `{ available: false, slots: [] }`; appointments existentes/histórico/Services/Availability intocados; `by-phone` e `cancel-public` continuam funcionando para clientes
+- **Perfil público**: continua visível (não vira 404); `GET /professionals` e `GET /professionals/slug/:slug` agora expõem `status` para a UI futura
+- **Testes**: `admin-professional-status.spec.ts` (23) + `auth-suspension.spec.ts` (11) + `appointments-suspension.spec.ts` (13); backend total **211/211** (18 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
+- **Frontend**: inalterado (67/67, 7 suítes) — badge, ações Suspender/Reativar, confirmação e UX de suspenso continuam pendentes
+- **Commit**: `78bd46e` — `feat(admin): add professional suspension`
+
 ## 2026-10-22 — Frontend ADMIN: tela de edição de profissional (commit 714037a)
 
 - **Nova rota**: `/admin/professionals/[id]/edit` — dentro do route group `(protected)`, herda o `AdminRoute` existente; sem guard novo, sem layout novo, sem cliente HTTP paralelo; Client Component com `params: Promise<{ id }>` (padrão Next.js 16 do projeto)

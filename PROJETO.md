@@ -19,7 +19,8 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 - [x] Frontend ADMIN de criação: formulário /admin/professionals/new integrado ao POST (d7c81d8)
 - [x] Backend ADMIN de edição: GET individual + PATCH completo (5 campos), nested write atômica Professional + User (98f9a46)
 - [x] Frontend ADMIN de edição: rota /admin/professionals/[id]/edit + ação Editar na listagem — edição ADMIN end-to-end dos 5 campos permitidos (714037a)
-- [ ] CRUD completo de profissionais pelo ADMIN (suspensão/reativação, exclusão) — ainda pendente
+- [x] Backend ADMIN de suspensão/reativação: `ProfessionalStatus` + `PATCH /admin/professionals/:id/status` + enforcement em JwtStrategy/login/booking (78bd46e — migration versionada ainda NÃO aplicada em produção; frontend pendente)
+- [ ] CRUD completo de profissionais pelo ADMIN — ainda pendente (backend de suspensão/reativação pronto — 78bd46e; falta frontend das ações e exclusão)
 - [ ] Correções de segurança identificadas na auditoria (ver abaixo)
 
 ### Fase 2 (SaaS) — Planejada
@@ -48,7 +49,7 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 | appointments | CRUD + rotas públicas (criação, consulta por telefone, cancelamento) |
 | services | CRUD ⚠️ SEM GUARDS |
 | availabilities | CRUD completo com guards + exceções + múltiplos períodos |
-| admin | RBAC (@Roles ADMIN): me, listagem read-only, criação Professional + User, edição (GET individual + PATCH completo de 5 campos; password/role fora) |
+| admin | RBAC (@Roles ADMIN): me, listagem read-only, criação Professional + User, edição (GET individual + PATCH completo de 5 campos; password/role fora), status operacional (suspensão/reativação — 78bd46e) |
 | prisma | PrismaService @Global |
 
 ## Multi-tenant — Estado Atual

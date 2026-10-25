@@ -14,7 +14,7 @@ Auditoria completa realizada em 2026-08-27 (~70 arquivos verificados).
 | **appointments** | appointments.controller, appointments.service, create-appointment.dto, update-status.dto, cancel-public.dto | CRUD + rotas públicas. Business logic de conflitos, transições de status, ownership. |
 | **services** | services.controller, services.service, create-service.dto, update-service.dto | CRUD ⚠️ sem guards — ver PROJETO.md RISCO C1 |
 | **availabilities** | availabilities.controller, availabilities.service, 6 DTOs | CRUD completo + exceções + múltiplos períodos. Todos com guards. |
-| **admin** | admin.controller, admin.module, admin.service, dto, admin-create-professional.dto, admin-update-professional.dto | RBAC (v1.2): GET /admin/me + GET /admin/professionals (listagem read-only) + POST /admin/professionals (criação Professional + User) + GET/PATCH /admin/professionals/:id (edição) com @Roles(Role.ADMIN). |
+| **admin** | admin.controller, admin.module, admin.service, dto, admin-create-professional.dto, admin-update-professional.dto, admin-update-professional-status.dto | RBAC (v1.2): GET /admin/me + GET /admin/professionals (listagem read-only) + POST /admin/professionals (criação Professional + User) + GET/PATCH /admin/professionals/:id (edição) + PATCH /admin/professionals/:id/status (suspensão/reativação) com @Roles(Role.ADMIN). |
 | **prisma** | prisma.module, prisma.service | PrismaService @Global() |
 
 ### Validação Global
@@ -43,6 +43,7 @@ RolesGuard (Reflector — NÃO consulta banco)
 @Roles(Role.ADMIN)
 ```
 - Role é obtida do banco em cada request autenticado — promoção/revogação tem efeito imediato
+- Suspensão (78bd46e): `Role.PROFESSIONAL` + `Professional.status = SUSPENDED` → 403 em qualquer request autenticada — inclusive JWT emitido antes da suspensão (sem blacklist — o enforcement vem da consulta ao banco) — ver seção "Status operacional"
 - `@Roles` usa o enum `Role` do Prisma (`ROLES_KEY` explícita via `SetMetadata`) — `Role.ADMIN` já existia no schema, sem migration
 - RolesGuard: sem metadata `@Roles` na rota/classe → permite; role divergente/ausente → 403
 - Guards de role **não são globais** — route-level via `@UseGuards(JwtAuthGuard, RolesGuard)` (Jwt primeiro, Roles depois)
@@ -128,6 +129,34 @@ professional.update
 - **Slug**: o ADMIN pode alterar o slug — backend sem normalização, apenas valida `^[a-z0-9-]+$`; alterar o slug muda a URL pública do profissional (sem redirect automático do slug antigo — dívida operacional, não bug bloqueante)
 - **Email**: o ADMIN pode alterar o email do User associado — isso altera a credencial de login do profissional; sem confirmação por email nesta versão
 - **Testes**: `admin-edit-professional.spec.ts` (36 cenários — cadeia real de guards + ValidationPipe real, Prisma mockado, sem banco real); admin 82/82 (4 suítes); suíte completa 164/164 (15 suítes); `npm run build` PASS
+
+### Status operacional PATCH /admin/professionals/:id/status (backend desde 2026-10-23, 78bd46e — migration ainda NÃO executada em produção)
+```
+ADMIN
+  ↓
+PATCH /admin/professionals/:id/status
+  ↓
+precheck findUnique (inexistente → 404)
+  ↓
+status atual == pedido → 200 SEM write (idempotente)
+  ↓
+diferente → update SOMENTE de Professional.status
+```
+- **Modelo**: `enum ProfessionalStatus { ACTIVE SUSPENDED }`; `Professional.status @default(ACTIVE)` — fonte única de verdade operacional; **não** existe status equivalente em User; sem `suspendedAt`/`reactivatedAt`/`statusChangedAt`/`suspensionReason`/`isActive` no Professional (auditoria completa ainda não existe)
+- **Migration**: `20261023000000_add_professional_status` — aditiva (`CREATE TYPE` + `ADD COLUMN NOT NULL DEFAULT 'ACTIVE'`); registros existentes recebem ACTIVE; não destrutiva; não altera User; **versionada mas ainda NÃO executada em produção**
+- **DTO separado**: `AdminUpdateProfessionalStatusDto` — único campo `status` (`@IsEnum` do enum gerado); o PATCH de edição (5 campos) continua sem aceitar `status` (→ 400 via `forbidNonWhitelisted`); sem mass assignment
+- **Proteção**: `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)` — PROFESSIONAL → 403 · sem JWT → 401
+- **Idempotência real**: ACTIVE→ACTIVE e SUSPENDED→SUSPENDED retornam 200 **sem chamar update** (updatedAt não é alterado artificialmente; duplo acionamento seguro); mudança real altera somente `Professional.status`
+- **user=null**: Professional sem User pode ser suspenso/reativado normalmente — nenhuma criação automática de User; a suspensão pertence ao tenant (Professional), não ao login
+- **Responses admin**: listagem e GET individual agora incluem `status` no select seguro; criação/edição retornam `status` (novo Professional nasce ACTIVE pelo default do banco — o service não envia status controlável); password continua ausente; GET individual: `{ professional: { id, name, slug, status, createdAt, updatedAt }, user: { id, email, firstName, lastName, role, createdAt, updatedAt } | null }`
+- **Auth enforcement (JwtStrategy)**: a consulta User+Professional já roda em cada request autenticada; `Role.PROFESSIONAL` + `professional.status === SUSPENDED` → **403** "Conta suspensa. Entre em contato com o administrador." — JWT emitido ANTES da suspensão é bloqueado na próxima request; ADMIN nunca é bloqueado; reativado → acesso volta (nenhum token novo é necessário — sem blacklist)
+- **Login**: `POST /auth/login` valida a senha ANTES de revelar suspensão (senha correta + suspenso → 403 com a mensagem; senha errada → 401 "Credenciais inválidas." — o login não vira enumeração do estado da conta); ADMIN loga normalmente
+- **Booking público**: `POST /appointments` para suspenso → **403** "Este profissional não está aceitando novos agendamentos no momento." — zero Appointment criado; backend é a autoridade (frontend futuro não pode ser a única proteção)
+- **Available**: `GET /appointments/available` para suspenso → `{ available: false, slots: [], message }` (mesmo shape já usado pelo endpoint); Availability não é modificada
+- **Appointments existentes**: suspensão NÃO cancela, NÃO apaga, NÃO altera histórico; Services/Availability preservados; `by-phone` e `cancel-public` continuam funcionando (fluxos do cliente — deliberado para não punir clientes com appointment existente)
+- **Perfil público**: Professional SUSPENDED continua publicamente consultável — `GET /professionals` e `GET /professionals/slug/:slug` agora expõem `status` (campo do model); perfil não vira 404 por suspensão; UI futura informará indisponibilidade para novos bookings
+- **Frontend PENDENTE**: badge Ativo/Suspenso, ações Suspender (confirmação)/Reativar, UX de login/sessão para suspenso, página pública mostrando indisponibilidade — nada disso existe ainda
+- **Testes**: `admin-professional-status.spec.ts` (23) + `auth-suspension.spec.ts` (11) + `appointments-suspension.spec.ts` (13 — inclui perfil público); suíte completa backend **211/211** (18 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
 
 ### Ownership por Módulo
 | Módulo | Ownership | Observação |
@@ -250,7 +279,8 @@ GET /admin/professionals
 - Guard frontend = UX; backend (`RolesGuard`) = boundary real de autorização
 - Não-ADMIN em `/admin/login`: sessão removida, acesso recusado, permanece na página
 - Criação já existe ponta a ponta: backend (`POST /admin/professionals`, cfc4ad2) + formulário `/admin/professionals/new` (d7c81d8 — ver seção "Criação administrativa")
-- Edição já existe ponta a ponta: backend (`GET`/`PATCH /admin/professionals/:id`, 98f9a46) + formulário `/admin/professionals/[id]/edit` com ação "Editar" na listagem (714037a — ver seção "Backoffice ADMIN — frontend"); suspensão/reativação/exclusão pendentes
+- Edição já existe ponta a ponta: backend (`GET`/`PATCH /admin/professionals/:id`, 98f9a46) + formulário `/admin/professionals/[id]/edit` com ação "Editar" na listagem (714037a — ver seção "Backoffice ADMIN — frontend")
+- Suspensão/reativação: backend pronto (78bd46e — ver seção "Status operacional"; migration ainda não executada em produção); frontend das ações pendente; exclusão pendente
 
 ## Pontos de Atenção
 Ver PROJETO.md → "Lista Priorizada de Problemas" para detalhes.
