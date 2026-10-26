@@ -20,8 +20,9 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 - [x] Backend ADMIN de edição: GET individual + PATCH completo (5 campos), nested write atômica Professional + User (98f9a46)
 - [x] Frontend ADMIN de edição: rota /admin/professionals/[id]/edit + ação Editar na listagem — edição ADMIN end-to-end dos 5 campos permitidos (714037a)
 - [x] Backend ADMIN de suspensão/reativação: `ProfessionalStatus` + `PATCH /admin/professionals/:id/status` + enforcement em JwtStrategy/login/booking (78bd46e — migration aplicada em produção em 2026-10-25; backend publicado + safe smoke PASS)
-- [x] Frontend ADMIN de suspensão/reativação: coluna Status (badge Ativo/Suspenso) + ação Suspender (com AlertDialog de confirmação) + Reativar direta na listagem (ee3a6e2 — commit local, ainda não pushado)
-- [ ] CRUD completo de profissionais pelo ADMIN — ainda pendente (suspensão/reativação completa — 78bd46e + ee3a6e2; falta exclusão)
+- [x] Frontend ADMIN de suspensão/reativação: coluna Status (badge Ativo/Suspenso) + ação Suspender (com AlertDialog de confirmação) + Reativar direta na listagem (ee3a6e2)
+- [x] Frontend UX de Professional suspenso: login suspenso com aviso inline, sessão já ativa encerrada pelo interceptor (token removido, `/login?reason=suspended`), aviso público de indisponibilidade no perfil, CTA de novo agendamento bloqueado (e8a1a2d — commit local, ainda não pushado)
+- [ ] CRUD completo de profissionais pelo ADMIN — ainda pendente (suspensão/reativação completa — 78bd46e + ee3a6e2 + e8a1a2d; falta exclusão)
 - [ ] Correções de segurança identificadas na auditoria (ver abaixo)
 
 ### Fase 2 (SaaS) — Planejada

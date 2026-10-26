@@ -391,6 +391,14 @@ Then: Retorna 400 Bad Request
 
 ## Changelog
 
+### 2026-10-26 - Frontend UX: Professional suspenso (commit e8a1a2d)
+- 403 comum NÃO encerra sessão; sessão encerrada somente com match EXATO da mensagem de suspensão (sem includes/regex) — evita falso logout; ADMIN protegido (nunca recebe a mensagem de suspensão)
+- `POST /auth/login` excluído do tratamento global do interceptor — a página trata inline; sem loop de redirect (login page não faz request privada no mount)
+- Query `?reason=suspended` carrega apenas estado sem dados sensíveis — nunca renderiza conteúdo arbitrário da query (anti-reflexão/injeção)
+- Token não é salvo no login de conta suspensa; sessão já ativa suspensa tem token removido centralmente pelo interceptor (sem toast; um único redirect lógico)
+- 403 de booking público (mensagem própria) não é confundido com suspensão de sessão — zero falso logout
+- Testes: api-interceptor 13/13, login-suspension 9/9, public-profile-suspension 9/9; frontend 117/117 (9 suítes); build PASS. Commit local, ainda não pushado
+
 ### 2026-10-25 - Frontend ADMIN: controles de suspensão/reativação (commit ee3a6e2)
 - Frontend envia SOMENTE `{ status }` no PATCH — sem mass assignment; backend permanece a autoridade (badge atualiza pelo `status` retornado, sem optimistic UI)
 - Erros sem vazamento: 400/5xx/rede → toast seguro sem alterar badge; 403 → acesso negado sem logout manual; 404 → toast + refetch preservando busca/página; 401 → interceptor existente (sem duplicar lógica)

@@ -155,7 +155,7 @@ diferente → update SOMENTE de Professional.status
 - **Available**: `GET /appointments/available` para suspenso → `{ available: false, slots: [], message }` (mesmo shape já usado pelo endpoint); Availability não é modificada
 - **Appointments existentes**: suspensão NÃO cancela, NÃO apaga, NÃO altera histórico; Services/Availability preservados; `by-phone` e `cancel-public` continuam funcionando (fluxos do cliente — deliberado para não punir clientes com appointment existente)
 - **Perfil público**: Professional SUSPENDED continua publicamente consultável — `GET /professionals` e `GET /professionals/slug/:slug` agora expõem `status` (campo do model); perfil não vira 404 por suspensão; UI futura informará indisponibilidade para novos bookings
-- **Frontend**: badge Ativo/Suspenso + ações Suspender (com AlertDialog de confirmação)/Reativar (direta) implementados na listagem ADMIN (ee3a6e2 — commit local, ainda não pushado); UX de login/sessão para suspenso e página pública mostrando indisponibilidade continuam pendentes
+- **Frontend**: badge Ativo/Suspenso + ações Suspender (com AlertDialog de confirmação)/Reativar (direta) implementados na listagem ADMIN (ee3a6e2 — já pushado); UX de login/sessão para suspenso e aviso na página pública implementados (e8a1a2d — commit local, ainda não pushado) — ver seção "UX frontend de Professional suspenso"
 - **Testes**: `admin-professional-status.spec.ts` (23) + `auth-suspension.spec.ts` (11) + `appointments-suspension.spec.ts` (13 — inclui perfil público); suíte completa backend **211/211** (18 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
 
 ### Ownership por Módulo
@@ -174,9 +174,9 @@ diferente → update SOMENTE de Professional.status
 | Rota | Auth | Descrição |
 |---|---:|---|
 | `/` | ❌ | Landing page |
-| `/login` | ❌ | Login |
+| `/login` | ❌ | Login (exibe aviso quando `?reason=suspended` — e8a1a2d) |
 | `/agendamentos` | ❌ | Consulta pública de agendamentos por telefone |
-| `/professional/[slug]` | ❌ | Página pública do profissional |
+| `/professional/[slug]` | ❌ | Página pública do profissional (aviso de indisponibilidade para suspensos — e8a1a2d) |
 | `/dashboard` | ✅ | Agendamentos do profissional (ativos/finalizados) |
 | `/dashboard/services` | ✅ | CRUD de serviços ⚠️ busca global não filtrada |
 | `/dashboard/availability` | ✅ | Gestão de disponibilidade + exceções |
@@ -190,6 +190,7 @@ diferente → update SOMENTE de Professional.status
 ### Autenticação
 - `useAuth()` hook com localStorage para JWT
 - Axios interceptors para Bearer token e redirect 401
+- Interceptor de 403 de **conta suspensa** (e8a1a2d): somente `403` + mensagem exata "Conta suspensa. Entre em contato com o administrador." em request privada → remove token + redirect `/login?reason=suspended`; `POST /auth/login` está excluído (a página trata inline); 403 comum NÃO faz logout; ver seção "UX frontend de Professional suspenso"
 - ProtectedRoute wrapper no dashboard layout
 - ⚠️ localStorage vulnerável a XSS — ver PROJETO.md A2
 
@@ -208,7 +209,25 @@ diferente → update SOMENTE de Professional.status
 - user=null: aviso "Este profissional não possui usuário associado.", Salvar desabilitado, nenhum PATCH possível, nenhum valor fictício, nenhum User criado automaticamente (backend manteria 409 se tentado).
 - PATCH: payload objeto explícito com exatamente os 5 campos (sem spread); duplo submit bloqueado (`isSubmitting`, botão "Salvando..." — teste com Promise pendente prova 1 única chamada). Erros: GET 404 → estado dedicado; PATCH 404 → permanece na tela com formulário preenchido; 409 email/slug mapeados por mensagem exata para o campo; 409 user ausente e 409 residual → erro geral; 409 desconhecido → fallback seguro; 403 sem logout; 5xx/rede → mensagem genérica + retry; 401 → interceptor existente. Redirect + toast apenas no 200. Tipos adicionados em `types/index.ts`: `AdminProfessionalDetails`, `AdminUpdateProfessionalPayload`, `AdminUpdateProfessionalResponse`.
 - Dívida não bloqueante: `AdminRoute` e o shell do layout usam instâncias independentes de `useAuth()` → dois `GET /auth/profile` por navegação na área protegida (sem impacto de segurança; não corrigido nesta entrega)
-- Testes frontend: Vitest + Testing Library (jsdom), 7 suítes, 89/89 passando, sem backend real (mocks) — suíte da listagem 32/32 cobre badge, ações por status, AlertDialog, payload exato, pending por id (A/B independentes), duplo clique, autoridade da response, non-optimistic, item stale não reinserido, 404 preservando busca/página, erros e regressão
+- Testes frontend: Vitest + Testing Library (jsdom), 9 suítes, 117/117 passando, sem backend real (mocks) — suíte da listagem 32/32 cobre badge, ações por status, AlertDialog, payload exato, pending por id (A/B independentes), duplo clique, autoridade da response, non-optimistic, item stale não reinserido, 404 preservando busca/página, erros e regressão; UX de suspensão: api-interceptor 13/13, login-suspension 9/9, public-profile-suspension 9/9
+
+### UX frontend de Professional suspenso (e8a1a2d — commit local, ainda não pushado)
+- **Constantes** (`frontend/lib/suspension.ts`): `SUSPENDED_ACCOUNT_MESSAGE` (espelho exato da string do backend), `SUSPENDED_REASON`, `SUSPENDED_LOGIN_PATH` — fonte única compartilhada pelo interceptor e pela login page (evita divergência entre as pontas)
+- **Match exato**: suspensão reconhecida SOMENTE com `status === 403` **E** `message ===` a string exata — sem `includes`, sem regex, sem 403 isolado; 403 comum (ex.: "Permissão insuficiente." do RolesGuard) não encerra sessão; ADMIN nunca é tratado como suspenso
+- **Três tratamentos distintos**: 401 = token inválido/expirado (comportamento existente preservado); 403 suspensão = Professional autenticado porém suspenso (remove token + redirect); 403 comum = acesso negado sem logout
+- **Interceptor (sessão já ativa)**: request privada com 403 de suspensão → remove `localStorage['token']` → redirect `/login?reason=suspended`; sem toast (requests simultâneas multiplicariam toasts); flag module-level garante um único redirect lógico para múltiplos 403 simultâneos (demais apenas rejeitam); o redirect usa `window.location.href` (reload completo), que recria o módulo e reseta a flag naturalmente
+- **`POST /auth/login` é exceção do interceptor**: o 403 do próprio login não dispara logout/redirect global — a página trata a mensagem inline (evita redirect desnecessário, loop e perda de UX)
+- **Login UX**: tentativa direta de conta suspensa → mensagem inline com `role="alert"`, token NÃO salvo, sem redirect ao dashboard, formulário utilizável; senha errada mantém a mensagem normal de credencial (sem inferência de suspensão)
+- **Query `?reason=suspended`**: carrega apenas um estado sem dados sensíveis; a página converte em texto FIXO frontend — query arbitrária (`foo`, `<script>`, mensagem qualquer) nunca é renderizada diretamente; `useSearchParams` sob `<Suspense>` (exigência do App Router/Next 16)
+- **Reativação**: sem polling, sem auto-login, sem recuperação do JWT antigo — o usuário faz novo login normalmente pelo fluxo habitual
+- **Perfil público SUSPENDED**: continua visível (nome, bio, serviços, redes, tema) — sem 404, sem redirect; aviso acessível por texto "Este profissional não está aceitando novos agendamentos no momento." (não depende só de cor); enum técnico `SUSPENDED` nunca exibido como label
+- **CTA/booking**: "Confirmar agendamento" `disabled` para SUSPENDED + guarda defensiva no `handleBooking` (zero POST disparado pela UI nesse estado); calendário/serviços permanecem visíveis como informação; backend continua a autoridade final
+- **Available**: lógica preexistente `available=false`/`slots=[]` preservada — `available` continua a autoridade operacional do calendário; `status` é reforço de UX; um não substitui o outro
+- **Booking race**: página carregada ACTIVE → ADMIN suspende → confirmação → backend 403 com mensagem PRÓPRIA de booking → mensagem segura exibida, sem assumir sucesso, sem falso logout (mensagem diferente — não confunde com suspensão de sessão)
+- **Histórico do cliente**: `CustomerAppointments`/by-phone/cancel-public intocados — suspensão não remove acesso do cliente ao histórico existente
+- **Tipos**: `ProfessionalStatus` reutilizado (nenhuma union paralela); `status` adicionado aos tipos públicos onde o backend garante presença; sem `any` novo
+- **Detalhe de teste**: `__resetSuspensionRedirectForTest` exportado por `lib/api.ts` é usado SOMENTE pelos testes do interceptor (Vitest 3 não tem `vi.isolateModules`; a factory do mock do axios é cacheada por arquivo) — não é API pública da aplicação
+- **Testes**: `api-interceptor` 13/13 (401 preservado; suspensão remove token + redirect; `/auth/login` excluído — inclusive shapes `auth/login` e URL completa; 403 comum; ADMIN; múltiplos 403 → 1 redirect; mensagem parecida mas não exata; booking 403); `login-suspension` 9/9 (mensagem inline + `role=alert`, sem token, sem redirect, query segura, login normal pós-aviso); `public-profile-suspension` 9/9 (ACTIVE com POST real, SUSPENDED visível + aviso + enum oculto + CTA inoperante com zero POST, available vazio, race 403, sem redirect/404)
 
 ## Banco de Dados (PostgreSQL + Prisma 6)
 
@@ -281,7 +300,7 @@ GET /admin/professionals
 - Não-ADMIN em `/admin/login`: sessão removida, acesso recusado, permanece na página
 - Criação já existe ponta a ponta: backend (`POST /admin/professionals`, cfc4ad2) + formulário `/admin/professionals/new` (d7c81d8 — ver seção "Criação administrativa")
 - Edição já existe ponta a ponta: backend (`GET`/`PATCH /admin/professionals/:id`, 98f9a46) + formulário `/admin/professionals/[id]/edit` com ação "Editar" na listagem (714037a — ver seção "Backoffice ADMIN — frontend")
-- Suspensão/reativação: backend pronto (78bd46e — ver seção "Status operacional"; migration ainda não executada em produção); frontend das ações pendente; exclusão pendente
+- Suspensão/reativação: backend pronto (78bd46e — ver seção "Status operacional"; migration aplicada em produção em 2026-10-25); frontend das ações concluído (ee3a6e2); exclusão pendente
 
 ## Pontos de Atenção
 Ver PROJETO.md → "Lista Priorizada de Problemas" para detalhes.

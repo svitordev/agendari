@@ -55,10 +55,10 @@ pex-agendamento/
 
 | Rota | Acesso | Descrição |
 |---|---|---|
-| `/login` | público | Login do profissional |
+| `/login` | público | Login do profissional (exibe aviso para conta suspensa — e8a1a2d) |
 | `/dashboard/*` | auth | Painel do profissional |
 | `/agendamentos` | público | Consulta pública por telefone |
-| `/professional/[slug]` | público | Página pública do profissional |
+| `/professional/[slug]` | público | Página pública do profissional (aviso de indisponibilidade para suspensos — e8a1a2d) |
 | `/admin/login` | público | Login do backoffice (somente ADMIN conclui o acesso) |
 | `/admin` | ADMIN | Painel administrativo read-only |
 | `/admin/professionals` | ADMIN | Listagem de profissionais + coluna Status (badge) + ações Suspender/Reativar (ee3a6e2) |
@@ -109,6 +109,7 @@ cd frontend && npm run dev
 - `.env` está em `.gitignore` — **nunca commitar**
 - JWT_SECRET é **obrigatório** — `requireJwtSecret()` em `main.ts` falha se ausente/ vazio
 - Backend: `npm test` roda Jest (211 testes, Prisma mockado, sem banco real)
-- Frontend: `npm run test` roda Vitest (89 testes, 7 suítes, mocks — sem backend real)
+- Frontend: `npm run test` roda Vitest (117 testes, 9 suítes, mocks — sem backend real)
 - Migration `20261023000000_add_professional_status` (`Professional.status`, default ACTIVE) — **aplicada em produção (2026-10-25)**; backend correspondente publicado e validado por safe smoke
+- Suspensão de Professional no frontend (e8a1a2d — commit local, ainda não pushado): login de conta suspensa mostra aviso inline; sessão já ativa é encerrada (token removido, redirect `/login?reason=suspended`); perfil público suspenso continua visível com aviso; novo agendamento bloqueado pela UI — backend continua a autoridade. Detalhes em `docs/ARQUITETURA.md`
 - Documentação detalhada: ver `PROJETO.md` e `docs/ARQUITETURA.md`

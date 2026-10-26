@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 2026-10-26 — Frontend UX: Professional suspenso (commit e8a1a2d)
+
+- **Contexto**: backend de suspensão já publicado (78bd46e) e listagem ADMIN com badge/ações concluída (ee3a6e2) — este commit é somente a UX frontend de suspensão
+- **Interceptor (`lib/api.ts`)**: 403 + mensagem EXATA "Conta suspensa. Entre em contato com o administrador." em request privada → remove token + redirect `/login?reason=suspended`; sem toast; flag module-level garante um único redirect lógico para múltiplos 403 simultâneos (reload completo reseta naturalmente)
+- **`POST /auth/login` é exceção**: o 403 do próprio login não passa pelo redirect global — a página trata inline (sem loop, sem perda de UX)
+- **Match exato**: sem includes/regex; 403 comum não encerra sessão; ADMIN nunca tratado como suspenso; 401 preservado
+- **Login**: conta suspensa → mensagem inline `role="alert"`, token não salvo, sem redirect; `?reason=suspended` vira texto fixo frontend (query arbitrária não é refletida); `useSearchParams` sob `<Suspense>`; reativação = novo login normal (sem polling/auto-login)
+- **Perfil público**: SUSPENDED continua visível (nome/bio/serviços/redes) com aviso acessível "Este profissional não está aceitando novos agendamentos no momento."; enum técnico nunca como label; sem 404/redirect
+- **CTA/booking**: "Confirmar agendamento" disabled + guarda defensiva no handleBooking (zero POST pela UI); `available=false`/`slots=[]` preexistente preservado (available continua autoridade operacional); race 403 de booking mostra mensagem segura sem falso logout
+- **Histórico do cliente**: by-phone/cancel-public intocados
+- **Tipos**: `ProfessionalStatus` reutilizado; `status` adicionado ao tipo público onde o backend garante presença; sem `any` novo; `lib/suspension.ts` novo (constantes compartilhadas)
+- **Testes**: api-interceptor 13/13 · login-suspension 9/9 · public-profile-suspension 9/9; frontend total **117/117** (9 suítes); `npm run build` PASS; nenhuma dependency npm nova
+- **Commit**: `e8a1a2d` — `feat(auth): handle professional suspension UX` (commit local — ainda não pushado)
+
 ## 2026-10-25 — Frontend ADMIN: controles de suspensão/reativação (commit ee3a6e2)
 
 - **Contexto**: migration `20261023000000_add_professional_status` aplicada em produção (Prisma up to date) e backend `78bd46e` publicado + safe smoke PASS — este commit é somente frontend
