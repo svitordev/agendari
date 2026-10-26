@@ -391,6 +391,13 @@ Then: Retorna 400 Bad Request
 
 ## Changelog
 
+### 2026-10-25 - Frontend ADMIN: controles de suspensão/reativação (commit ee3a6e2)
+- Frontend envia SOMENTE `{ status }` no PATCH — sem mass assignment; backend permanece a autoridade (badge atualiza pelo `status` retornado, sem optimistic UI)
+- Erros sem vazamento: 400/5xx/rede → toast seguro sem alterar badge; 403 → acesso negado sem logout manual; 404 → toast + refetch preservando busca/página; 401 → interceptor existente (sem duplicar lógica)
+- Ação degradante (Suspender) exige confirmação via AlertDialog; Reativar é direta (reversível); Cancelar no diálogo gera zero PATCH
+- Componente `components/ui/alert-dialog.tsx` adicionado via `radix-ui` já instalado — nenhuma dependency npm nova
+- Testes: suíte da listagem 32/32 (payload exato, autoridade da response, pending por id, duplo clique, erros); frontend 89/89; build PASS. Commit local, ainda não pushado
+
 ### 2026-10-23 - Controles de segurança: suspensão de profissionais (commit 78bd46e)
 - JWT antigo não ignora suspensão: o estado é verificado no banco em cada request autenticada (JwtStrategy já consulta User+Professional); sem blacklist de tokens
 - Login valida a senha antes de revelar o estado da conta (senha errada em conta suspensa → 401 genérico — sem enumeração)

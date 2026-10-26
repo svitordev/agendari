@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 2026-10-25 — Frontend ADMIN: controles de suspensão/reativação (commit ee3a6e2)
+
+- **Contexto**: migration `20261023000000_add_professional_status` aplicada em produção (Prisma up to date) e backend `78bd46e` publicado + safe smoke PASS — este commit é somente frontend
+- **Coluna Status** na listagem `/admin/professionals`: badge com texto — ACTIVE → "Ativo", SUSPENDED → "Suspenso" (o enum técnico nunca é exibido como label; cor é apenas reforço)
+- **Ações por linha**: ACTIVE → Editar + Suspender; SUSPENDED → Editar + Reativar (nunca as duas de status simultaneamente); user=null mantém a ação — status pertence ao Professional
+- **Confirmação**: Suspender exige AlertDialog (perde acesso às áreas privadas, novos agendamentos bloqueados, dados e agendamentos existentes preservados, ação reversível); Cancelar fecha com zero PATCH; Reativar é direta (reversível)
+- **Payload**: literal `{ status: 'SUSPENDED' }` / `{ status: 'ACTIVE' }` — somente o campo, sem mass assignment
+- **Sem optimistic**: badge só muda após 200 usando o `status` retornado pelo backend (backend é a autoridade); update local por id; item que saiu da lista durante o request não é reinserido; sem GET extra no sucesso; busca/página preservadas
+- **Pending por id**: `pendingIds` com Set imutável — só a linha afetada bloqueia ("Suspendendo..."/"Reativando...", Editar da linha indisponível); duplo clique protegido; linhas independentes
+- **Erros**: 400/5xx/rede → toast seguro, badge anterior preservado; 403 → acesso negado sem logout manual; 404 → toast + refetch preservando busca/página; 401 → interceptor existente
+- **Componente novo**: `components/ui/alert-dialog.tsx` (shadcn via `radix-ui` já instalado) — nenhuma dependency npm nova
+- **Testes**: `tests/admin-professionals.test.tsx` 32/32 (badge, ações, diálogo, payload exato, pending A/B, duplo clique, autoridade da response, non-optimistic, item stale, 404 com busca/página, erros, regressão); frontend total **89/89** (7 suítes); `npm run build` PASS
+- **Commit**: `ee3a6e2` — `feat(admin): add professional suspension controls` (commit local — ainda não pushado)
+
 ## 2026-10-23 — Backend ADMIN: suspensão/reativação de profissionais (commit 78bd46e)
 
 - **Modelo**: `enum ProfessionalStatus { ACTIVE SUSPENDED }` + `Professional.status @default(ACTIVE)` — fonte única de verdade operacional; nada no User; sem campos de auditoria (suspendedAt/reason) nesta versão

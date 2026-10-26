@@ -49,7 +49,7 @@ pex-agendamento/
 | appointments | POST /appointments, GET /appointments/available, GET /appointments/by-phone, PATCH /appointments/:id/cancel-public, GET/PATCH/DELETE /appointments/* | parcial | CRUD + rotas públicas |
 | services | POST/GET/PATCH/DELETE /services/* | ❌ | CRUD serviços ⚠️ sem guard |
 | availabilities | CRUD completo + exceções + períodos | ✅ | Disponibilidade com guards |
-| admin | GET /admin/me, GET /admin/professionals, GET /admin/professionals/:id, POST /admin/professionals, PATCH /admin/professionals/:id, PATCH /admin/professionals/:id/status | ✅ | RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`); listagem read-only com paginação/search + criação de Professional + User (nested write, role forçada PROFESSIONAL) + edição administrativa (GET individual + PATCH completo de 5 campos; password/role fora) + mudança de status operacional (suspensão/reativação, idempotente) — criação e edição consumidas pelo backoffice frontend; UI de status pendente |
+| admin | GET /admin/me, GET /admin/professionals, GET /admin/professionals/:id, POST /admin/professionals, PATCH /admin/professionals/:id, PATCH /admin/professionals/:id/status | ✅ | RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`); listagem read-only com paginação/search + criação de Professional + User (nested write, role forçada PROFESSIONAL) + edição administrativa (GET individual + PATCH completo de 5 campos; password/role fora) + mudança de status operacional (suspensão/reativação, idempotente) — criação, edição e status consumidos pelo backoffice frontend (badge + ações com confirmação — ee3a6e2) |
 
 ### Rotas Frontend
 
@@ -61,7 +61,7 @@ pex-agendamento/
 | `/professional/[slug]` | público | Página pública do profissional |
 | `/admin/login` | público | Login do backoffice (somente ADMIN conclui o acesso) |
 | `/admin` | ADMIN | Painel administrativo read-only |
-| `/admin/professionals` | ADMIN | Listagem read-only de profissionais |
+| `/admin/professionals` | ADMIN | Listagem de profissionais + coluna Status (badge) + ações Suspender/Reativar (ee3a6e2) |
 | `/admin/professionals/new` | ADMIN | Criação de profissional (formulário; backend força role PROFESSIONAL) |
 | `/admin/professionals/[id]/edit` | ADMIN | Edição de profissional (formulário de 5 campos; password/role fora) |
 
@@ -109,6 +109,6 @@ cd frontend && npm run dev
 - `.env` está em `.gitignore` — **nunca commitar**
 - JWT_SECRET é **obrigatório** — `requireJwtSecret()` em `main.ts` falha se ausente/ vazio
 - Backend: `npm test` roda Jest (211 testes, Prisma mockado, sem banco real)
-- Frontend: `npm run test` roda Vitest (67 testes, 7 suítes, mocks — sem backend real)
-- Migration `20261023000000_add_professional_status` (`Professional.status`, default ACTIVE) versionada — **ainda não aplicada em produção**
+- Frontend: `npm run test` roda Vitest (89 testes, 7 suítes, mocks — sem backend real)
+- Migration `20261023000000_add_professional_status` (`Professional.status`, default ACTIVE) — **aplicada em produção (2026-10-25)**; backend correspondente publicado e validado por safe smoke
 - Documentação detalhada: ver `PROJETO.md` e `docs/ARQUITETURA.md`
