@@ -359,9 +359,15 @@ export class AvailabilitiesService {
   async findAllByProfessional(
     professionalId: string,
   ) {
-    await this.ensureProfessional(
+    const professional = await this.ensureProfessional(
       professionalId,
     );
+
+    // Arquivado: nenhuma disponibilidade utilizável é exposta pela
+    // rota pública — lista vazia no mesmo shape; nada é apagado.
+    if (professional.deletedAt) {
+      return [];
+    }
 
     return this.prisma.availability.findMany({
       where: {

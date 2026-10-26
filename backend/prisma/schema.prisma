@@ -54,6 +54,7 @@ model Professional {
   facebook    String?
   whatsapp    String?
   status      ProfessionalStatus @default(ACTIVE) // Estado operacional do tenant (fonte única — não duplicar em User)
+  deletedAt   DateTime? // Soft delete/arquivamento — null = operacional; != null = arquivado (histórico preservado)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 

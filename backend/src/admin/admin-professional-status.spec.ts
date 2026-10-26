@@ -283,7 +283,7 @@ describe('PATCH /admin/professionals/:id/status — estado operacional (mocks, s
   it('8. status pedido vai ao Prisma exatamente como enviado', async () => {
     await patchStatus('prof-active', { status: 'SUSPENDED' }, adminToken()).expect(200);
 
-    expect(lastUpdateArgs().where).toEqual({ id: 'prof-active' });
+    expect(lastUpdateArgs().where).toEqual({ id: 'prof-active', deletedAt: null });
     expect(lastUpdateArgs().data.status).toBe('SUSPENDED');
   });
 

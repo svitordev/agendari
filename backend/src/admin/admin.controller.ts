@@ -1,4 +1,17 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Role } from '@prisma/client';
 
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
@@ -113,5 +126,22 @@ export class AdminController {
     @Body() dto: AdminUpdateProfessionalStatusDto,
   ) {
     return this.adminService.updateProfessionalStatus(id, dto);
+  }
+
+  /*
+   * ============================================================
+   * Arquivamento lógico (soft delete) — semântica de archive, não
+   * de remoção física: nenhuma linha é apagada (User/Services/
+   * Availability/Appointments preservados). Sem body, sem DTO.
+   * Sucesso → 204; já arquivado → 204 sem escrita (idempotente);
+   * inexistente → 404. Mesma cadeia de guards das demais rotas.
+   * ============================================================
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Delete('professionals/:id')
+  async archiveProfessional(@Param('id') id: string): Promise<void> {
+    await this.adminService.archiveProfessional(id);
   }
 }

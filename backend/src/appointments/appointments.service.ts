@@ -184,6 +184,18 @@ export class AppointmentsService {
     }
 
     /*
+     * Professional ARQUIVADO não aceita NOVOS agendamentos —
+     * arquivamento tem prioridade sobre a suspensão. Mensagem
+     * própria (não é mensagem de conta/JWT). Zero Appointment
+     * criado; appointments existentes não são afetados.
+     */
+    if (professional.deletedAt) {
+      throw new ForbiddenException(
+        'Este profissional não está disponível para novos agendamentos.',
+      );
+    }
+
+    /*
      * Professional suspenso não aceita NOVOS agendamentos —
      * backend é a autoridade, o frontend não é confiável.
      * Zero Appointment criado; appointments existentes não são
@@ -349,8 +361,8 @@ export class AppointmentsService {
     }
 
     /*
-     * Professional suspenso não mostra slots — resposta vazia no
-     * mesmo shape já usado pelo endpoint quando o dia não atende.
+     * Professional ARQUIVADO não mostra slots — resposta vazia no
+     * mesmo shape; arquivamento tem prioridade sobre a suspensão.
      * Availability não é modificada; histórico permanece intacto.
      */
     const professional = await this.prisma.professional.findUnique({
@@ -358,6 +370,14 @@ export class AppointmentsService {
         id: professionalId,
       },
     });
+
+    if (professional?.deletedAt) {
+      return {
+        available: false,
+        slots: [],
+        message: 'Este profissional não está disponível para novos agendamentos.',
+      };
+    }
 
     if (professional?.status === ProfessionalStatus.SUSPENDED) {
       return {

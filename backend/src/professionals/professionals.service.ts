@@ -77,9 +77,11 @@ export class ProfessionalsService {
     const take = query?.limit ?? 20;
     const skip = query?.offset ?? 0;
 
-    return this.prisma.professional.findMany({
+    const rows = await this.prisma.professional.findMany({
       take,
       skip,
+      // Arquivados não aparecem na listagem pública.
+      where: { deletedAt: null },
       orderBy: { slug: 'asc' },
       include: {
         services: {
@@ -99,6 +101,10 @@ export class ProfessionalsService {
         },
       },
     });
+
+    // deletedAt é guard interno de lifecycle — não vaza na response
+    // pública (shape anterior preservado, sem o campo novo).
+    return rows.map(({ deletedAt: _deletedAt, ...rest }) => rest);
   }
 
   async findOneById(id: string) {
@@ -151,7 +157,17 @@ export class ProfessionalsService {
       throw new NotFoundException(`Profissional com ID ${id} não encontrada.`);
     }
 
-    return professional;
+    // Arquivado não é exposto — 404 (defense in depth: o acesso
+    // normal já é bloqueado na auth; o registro permanece no banco
+    // para histórico, mas não é servido por esta rota).
+    if (professional.deletedAt) {
+      throw new NotFoundException(`Profissional com ID ${id} não encontrada.`);
+    }
+
+    // deletedAt é guard interno — não vaza na response.
+    const { deletedAt: _deletedAt, ...publicProfessional } = professional;
+
+    return publicProfessional;
   }
 
   async findOneBySlug(slug: string) {
@@ -197,7 +213,19 @@ export class ProfessionalsService {
       );
     }
 
-    return professional;
+    // Arquivado: a página pública sai do ar (404) — slug permanece
+    // reservado (linha existe; unique vale; sem 410/tombstone nesta
+    // versão). deletedAt não é adicionado ao response shape.
+    if (professional.deletedAt) {
+      throw new NotFoundException(
+        `A página da profissional "${slug}" não foi encontrada.`,
+      );
+    }
+
+    // deletedAt é guard interno — não vaza na response.
+    const { deletedAt: _deletedAt, ...publicProfile } = professional;
+
+    return publicProfile;
   }
 
   async updateProfile(id: string, dto: UpdateProfessionalProfileDto) {

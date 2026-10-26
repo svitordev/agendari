@@ -55,8 +55,19 @@ export class ServicesService {
   /*
    * LISTA PÚBLICA — somente serviços ativos de um profissional.
    * Usado pela página pública /professional/[slug].
+   * Profissional arquivado não produz catálogo utilizável —
+   * lista vazia no mesmo shape (dados permanecem no banco).
    */
   async findPublicByProfessional(professionalId: string) {
+    const professional = await this.prisma.professional.findUnique({
+      where: { id: professionalId },
+      select: { deletedAt: true },
+    });
+
+    if (professional?.deletedAt) {
+      return [];
+    }
+
     return this.prisma.service.findMany({
       where: { professionalId, isActive: true },
       orderBy: { name: 'asc' },

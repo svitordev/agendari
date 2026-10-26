@@ -303,7 +303,7 @@ describe('GET/PATCH /admin/professionals/:id — edição ADMIN (mocks, sem banc
   it('13. name e slug vão ao Prisma no nível do Professional', async () => {
     await patchEdit('prof-1', validBody(), adminToken()).expect(200);
 
-    expect(lastUpdateArgs().where).toEqual({ id: 'prof-1' });
+    expect(lastUpdateArgs().where).toEqual({ id: 'prof-1', deletedAt: null });
     expect(lastUpdateArgs().data.name).toBe('Ana Silva');
     expect(lastUpdateArgs().data.slug).toBe('ana-silva');
   });

@@ -73,6 +73,20 @@ export class AuthService {
     }
 
     /*
+     * Estado operacional: arquivamento tem PRIORIDADE sobre a
+     * suspensão (deletedAt != null vence mesmo com status
+     * SUSPENDED). Verificado SOMENTE após a senha correta — antes
+     * disso o login viraria enumeração de estado (senha errada em
+     * User arquivado continua 401 genérico). ADMIN e User sem
+     * Professional não são afetados.
+     */
+    if (user.role === Role.PROFESSIONAL && user.professional?.deletedAt) {
+      throw new ForbiddenException(
+        'Este perfil foi desativado. Entre em contato com o administrador.',
+      );
+    }
+
+    /*
      * Suspensão verificada SOMENTE após a senha correta — antes
      * disso o login viraria enumeração de status (revelaria contas
      * suspensas a quem não sabe a senha). Credenciais inválidas

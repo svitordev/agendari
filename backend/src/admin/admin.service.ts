@@ -38,15 +38,24 @@ export class AdminService {
      * registros (inner-join), mas name/slug continuam casando.
      */
     const search = dto.search;
-    const where: Prisma.ProfessionalWhereInput = search
-      ? {
-          OR: [
-            { name: { contains: search, mode: 'insensitive' } },
-            { slug: { contains: search, mode: 'insensitive' } },
-            { user: { email: { contains: search, mode: 'insensitive' } } },
-          ],
-        }
-      : {};
+    const where: Prisma.ProfessionalWhereInput = {
+      // Arquivados não aparecem na listagem normal — o filtro é
+      // AND com o search (um archived não pode escapar pelo OR).
+      deletedAt: null,
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' as const } },
+              { slug: { contains: search, mode: 'insensitive' as const } },
+              {
+                user: {
+                  email: { contains: search, mode: 'insensitive' as const },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
 
     const [items, total] = await Promise.all([
       this.prisma.professional.findMany({
@@ -194,6 +203,7 @@ export class AdminService {
         name: true,
         slug: true,
         status: true,
+        deletedAt: true,
         createdAt: true,
         updatedAt: true,
         user: {
@@ -210,11 +220,13 @@ export class AdminService {
       },
     });
 
-    if (!row) {
+    // Arquivado não é exposto pelo GET normal — 404 semântico
+    // (deletedAt é guard interno e não sai no response).
+    if (!row || row.deletedAt) {
       throw new NotFoundException('Profissional não encontrado.');
     }
 
-    const { user, ...professional } = row;
+    const { user, deletedAt: _deletedAt, ...professional } = row;
 
     return { professional, user };
   }
@@ -238,10 +250,11 @@ export class AdminService {
   async updateProfessional(id: string, dto: AdminUpdateProfessionalDto) {
     const existing = await this.prisma.professional.findUnique({
       where: { id },
-      select: { id: true, user: { select: { id: true } } },
+      select: { id: true, deletedAt: true, user: { select: { id: true } } },
     });
 
-    if (!existing) {
+    if (!existing || existing.deletedAt) {
+      // Arquivado não é editável — 404 (deletedAt visto só pelo guard).
       throw new NotFoundException('Profissional não encontrado.');
     }
 
@@ -253,7 +266,10 @@ export class AdminService {
 
     try {
       const updated = await this.prisma.professional.update({
-        where: { id },
+        // Guarda de race: se um archive entrar entre o pre-check e a
+        // escrita, o update não casa (P2025 → 409) — edit não altera
+        // nem ressuscita arquivado silenciosamente.
+        where: { id, deletedAt: null },
         data: {
           name: dto.name,
           slug: dto.slug,
@@ -364,6 +380,7 @@ export class AdminService {
         name: true,
         slug: true,
         status: true,
+        deletedAt: true,
         createdAt: true,
         updatedAt: true,
         user: {
@@ -380,11 +397,13 @@ export class AdminService {
       },
     });
 
-    if (!existing) {
+    // Arquivado não aceita mudança de status — 404. Restore NÃO é
+    // reativação: deletedAt não é limpo por este endpoint.
+    if (!existing || existing.deletedAt) {
       throw new NotFoundException('Profissional não encontrado.');
     }
 
-    const { user, ...professional } = existing;
+    const { user, deletedAt: _deletedAt, ...professional } = existing;
 
     // No-op idempotente: já está no estado pedido → nenhuma escrita.
     if (professional.status === dto.status) {
@@ -393,7 +412,9 @@ export class AdminService {
 
     try {
       const updated = await this.prisma.professional.update({
-        where: { id },
+        // Guarda de race: archive concorrente entre pre-check e
+        // escrita → P2025 → 409 — status não altera arquivado.
+        where: { id, deletedAt: null },
         data: { status: dto.status },
         select: {
           id: true,
@@ -433,6 +454,68 @@ export class AdminService {
       }
 
       // Outros erros seguem o tratamento normal do Nest.
+      throw err;
+    }
+  }
+
+  /*
+   * ============================================================
+   * Arquivamento lógico (soft delete) — DELETE /admin/professionals/:id.
+   *
+   * NUNCA é hard delete Prisma: nenhuma linha é removida; User,
+   * Services, Availability, Exceptions e Appointments permanecem
+   * intactos (histórico, by-phone e cancel-public continuam).
+   *
+   * Idempotência: já arquivado → 204 SEM escrita (deletedAt
+   * anterior não é sobrescrito). Inexistente → 404. Race de
+   * archive concorrente → update condicional não casa (P2025)
+   * → 204 — o outro archive venceu, estado final é o mesmo.
+   *
+   * Escreve SOMENTE deletedAt — status/name/slug/User não são
+   * tocados. Professional sem User (user=null) arquiva normalmente.
+   * ============================================================
+   */
+  async archiveProfessional(id: string): Promise<void> {
+    const existing = await this.prisma.professional.findUnique({
+      where: { id },
+      select: { id: true, deletedAt: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Profissional não encontrado.');
+    }
+
+    // Idempotente: já arquivado → 204 sem escrita, deletedAt
+    // anterior preservado.
+    if (existing.deletedAt) {
+      return;
+    }
+
+    try {
+      await this.prisma.professional.update({
+        where: { id, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2025'
+      ) {
+        // Corrida: o update condicional não casou. P2025 sozinho não
+        // distingue "outro archive venceu" de "linha sumiu" — re-check
+        // mínimo decide: arquivado → 204 idempotente; inexistente →
+        // 404 (não afirmar sucesso sobre algo que não existe).
+        const rachecked = await this.prisma.professional.findUnique({
+          where: { id },
+          select: { id: true, deletedAt: true },
+        });
+
+        if (rachecked?.deletedAt) {
+          return;
+        }
+
+        throw new NotFoundException('Profissional não encontrado.');
+      }
       throw err;
     }
   }

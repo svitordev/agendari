@@ -28,6 +28,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     /*
+     * Estado operacional: arquivamento tem PRIORIDADE sobre a
+     * suspensão — Professional arquivado perde acesso às áreas
+     * privadas mesmo com JWT válido emitido antes do archive
+     * (esta consulta ao banco já roda em toda request). Checado
+     * ANTES da suspensão: deletedAt != null vence mesmo com status
+     * SUSPENDED. ADMIN nunca é bloqueado por estes checks.
+     */
+    if (user.role === Role.PROFESSIONAL && user.professional?.deletedAt) {
+      throw new ForbiddenException(
+        'Este perfil foi desativado. Entre em contato com o administrador.',
+      );
+    }
+
+    /*
      * Estado operacional: Professional suspenso perde acesso às
      * áreas privadas mesmo com JWT válido emitido antes da
      * suspensão — esta consulta ao banco já roda em toda request,
