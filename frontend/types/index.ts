@@ -88,11 +88,15 @@ export interface AdminUser {
   role: 'ADMIN' | 'PROFESSIONAL' | 'CUSTOMER';
 }
 
+// Estado operacional do tenant — espelha o enum ProfessionalStatus do Prisma.
+export type ProfessionalStatus = 'ACTIVE' | 'SUSPENDED';
+
 export interface AdminProfessionalItem {
   id: string;
   slug: string;
   name: string;
   avatarUrl: string | null;
+  status: ProfessionalStatus;
   createdAt: string;
   updatedAt: string;
   user: AdminUser | null;
@@ -154,6 +158,7 @@ export interface AdminProfessionalDetailsProfessional {
   id: string;
   name: string;
   slug: string;
+  status: ProfessionalStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -176,3 +181,9 @@ export interface AdminUpdateProfessionalPayload {
 
 // PATCH /admin/professionals/:id — mesma shape do GET individual.
 export interface AdminUpdateProfessionalResponse extends AdminProfessionalDetails {}
+
+// Payload do PATCH /admin/professionals/:id/status — exatamente o campo do DTO do backend.
+// Nada mais vai no body (o backend rejeita campos extras — forbidNonWhitelisted).
+export interface AdminUpdateProfessionalStatusPayload {
+  status: ProfessionalStatus;
+}
