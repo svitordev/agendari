@@ -23,6 +23,8 @@ import {
 
 import api from "@/lib/api";
 
+import type { ProfessionalStatus } from "@/types";
+
 import CustomerAppointments from "@/components/public/CustomerAppointments";
 
 import "react-calendar/dist/Calendar.css";
@@ -43,6 +45,7 @@ type Professional = {
   facebook?: string | null;
   whatsapp?: string | null;
   themeColors?: ThemeColors | null;
+  status: ProfessionalStatus;
 };
 
 type ServiceItem = {
@@ -260,6 +263,13 @@ export default function ProfessionalPage({
 
   const handleBooking = async () => {
     if (!professional) {
+      return;
+    }
+
+    // Defesa em profundidade: o CTA já nasce desabilitado para suspensos —
+    // backend continua a autoridade (403 com mensagem própria de booking,
+    // que NÃO dispara o fluxo de sessão suspensa no interceptor).
+    if (professional.status === "SUSPENDED") {
       return;
     }
 
@@ -539,6 +549,16 @@ export default function ProfessionalPage({
             <p className="mt-1 text-sm text-gray-500">
               Escolha o serviço, a data e o melhor horário para você.
             </p>
+
+            {professional.status === "SUSPENDED" && (
+              <p
+                role="status"
+                className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900"
+              >
+                Este profissional não está aceitando novos agendamentos no
+                momento.
+              </p>
+            )}
           </div>
 
           <div className="grid gap-5 lg:grid-cols-2">
@@ -827,6 +847,7 @@ export default function ProfessionalPage({
               <button
                 type="button"
                 disabled={
+                  professional.status === "SUSPENDED" ||
                   !selectedService ||
                   !selectedDate ||
                   !selectedSlot ||

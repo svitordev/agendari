@@ -1,4 +1,23 @@
 import axios from 'axios';
+import {
+  isLoginRequest,
+  isSuspendedAccountError,
+  SUSPENDED_LOGIN_PATH,
+} from './suspension';
+
+// Flag apenas para o redirect de suspensão em andamento — múltiplos 403 de
+// suspensão simultâneos produzem um único redirect. O redirect usa
+// window.location.href (reload completo), então este module state reseta
+// naturalmente na próxima carga da página. A remoção do token acontece antes
+// da flag — a sessão é sempre invalidada; apenas o redirect é deduplicado.
+let suspensionRedirectInProgress = false;
+
+// Test-only: a factory do vi.mock('axios') é cacheada por arquivo e
+// vi.isolateModules não existe no Vitest 3 — sem este reset, a flag vazaria
+// entre testes (ver tests/api-interceptor.test.ts).
+export function __resetSuspensionRedirectForTest(): void {
+  suspensionRedirectInProgress = false;
+}
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000',
@@ -33,6 +52,16 @@ api.interceptors.response.use(
             ? '/admin/login'
             : '/login';
         }
+      }
+    }
+    // Conta suspensa (mensagem exata do backend — ver lib/suspension.ts):
+    // sessão invalidada centralmente. O 403 do próprio POST /auth/login é
+    // tratado inline pela página de login (sem logout/redirect aqui).
+    if (isSuspendedAccountError(error) && !isLoginRequest(error.config)) {
+      localStorage.removeItem('token');
+      if (typeof window !== 'undefined' && !suspensionRedirectInProgress) {
+        suspensionRedirectInProgress = true;
+        window.location.href = SUSPENDED_LOGIN_PATH;
       }
     }
     return Promise.reject(error);

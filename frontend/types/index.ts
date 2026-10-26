@@ -19,6 +19,9 @@ export interface Professional {
     secondary: string;
     accent: string;
   };
+  // Os GETs públicos (lista e slug) expõem status — o backend garante presença
+  // (campo do model com default ACTIVE).
+  status: ProfessionalStatus;
 }
 
 export interface Service {

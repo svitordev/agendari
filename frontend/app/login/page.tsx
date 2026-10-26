@@ -1,18 +1,25 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SUSPENDED_ACCOUNT_MESSAGE, SUSPENDED_REASON } from '@/lib/suspension';
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const router = useRouter();
+  // Vindo de sessão previamente ativa que foi suspensa: aviso fixo local.
+  // A query nunca é renderizada diretamente (somente comparada com a
+  // constante); qualquer outro valor de ?reason é ignorado.
+  const searchParams = useSearchParams();
+  const suspendedNotice =
+    searchParams.get('reason') === SUSPENDED_REASON ? SUSPENDED_ACCOUNT_MESSAGE : '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +52,10 @@ export default function LoginPage() {
               <label className="text-sm font-medium text-gray-700" htmlFor="password">Senha</label>
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="******" required />
             </div>
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {suspendedNotice && (
+              <p role="alert" className="text-sm font-medium text-red-600">{suspendedNotice}</p>
+            )}
+            {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Entrando...' : 'Entrar'}
             </Button>
@@ -53,5 +63,15 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// useSearchParams exige Suspense boundary no App Router (Next 16) — o build
+// falha em prerender sem ele.
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

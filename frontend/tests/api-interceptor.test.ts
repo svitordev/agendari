@@ -73,4 +73,204 @@ describe('interceptor 401', () => {
     expect(localStorage.getItem('token')).toBeNull();
     expect(window.location.href).toBe(''); // nenhum redirect
   });
+
+  it('17. 401 comum fora do login mantém redirect e limpa token', async () => {
+    localStorage.setItem('token', 't');
+    setPathname('/dashboard');
+    const error = { response: { status: 401 }, config: { url: '/auth/profile' } };
+    await expect(getResponseErrorHandler()(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(window.location.href).toBe('/login');
+  });
+});
+
+/*
+ * ========================================================
+ * SUSPENSÃO — sessão já ativa (403 com a mensagem exata do
+ * backend). Cada teste recarrega o módulo via vi.resetModules
+ * + reset explícito da flag de redirect (a factory do mock do
+ * axios é cacheada por arquivo — ver lib/api.ts).
+ * ========================================================
+ */
+
+type FreshInstance = {
+  interceptors: {
+    request: { use: ReturnType<typeof vi.fn> };
+    response: { use: ReturnType<typeof vi.fn> };
+  };
+};
+
+async function freshHandler(): Promise<(error: unknown) => Promise<unknown>> {
+  vi.resetModules();
+  const axiosMod = (await import('axios')) as unknown as {
+    default: { create: () => FreshInstance; __instance: FreshInstance };
+  };
+  const apiMod = (await import('@/lib/api')) as unknown as {
+    __resetSuspensionRedirectForTest?: () => void;
+  };
+  // Garante flag limpa mesmo quando o factory mock não é re-executado entre
+  // testes (o handler usado é o do módulo importado acima — última chamada).
+  apiMod.__resetSuspensionRedirectForTest?.();
+  const calls =
+    axiosMod.default.__instance.interceptors.response.use.mock.calls;
+  const call = calls[calls.length - 1];
+  return call![1] as (error: unknown) => Promise<unknown>;
+}
+
+function trackLocation(pathname: string) {
+  const state = { href: '', sets: 0 };
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    writable: true,
+    value: {
+      pathname,
+      get href() {
+        return state.href;
+      },
+      set href(v: string) {
+        state.href = v;
+        state.sets += 1;
+      },
+    },
+  });
+  return state;
+}
+
+const SUSP_MSG = 'Conta suspensa. Entre em contato com o administrador.';
+
+describe('interceptor — conta suspensa', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('18. 403 suspensão em request privada remove token e redireciona', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/auth/profile' },
+      response: { status: 403, data: { message: SUSP_MSG } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(loc.href).toBe('/login?reason=suspended');
+    expect(loc.sets).toBe(1);
+  });
+
+  it('19. 403 suspensão no próprio POST /auth/login NÃO faz tratamento global', async () => {
+    localStorage.setItem('token', 'keep-me');
+    const loc = trackLocation('/login');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/auth/login' },
+      response: { status: 403, data: { message: SUSP_MSG } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    // A página de login trata inline: sem logout extra e sem redirect.
+    expect(localStorage.getItem('token')).toBe('keep-me');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('20. 403 comum NÃO remove token e NÃO redireciona', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/services' },
+      response: { status: 403, data: { message: 'Permissão insuficiente.' } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('t');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('21. 403 comum de ADMIN não é tratado como suspensão', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/admin/professionals');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/admin/professionals/cmung4v4x0000t9gcziccm7zz/status' },
+      response: { status: 403, data: { message: 'Permissão insuficiente.' } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('t');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('22. múltiplos 403 de suspensão simultâneos produzem um único redirect', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const e1 = {
+      config: { url: '/auth/profile' },
+      response: { status: 403, data: { message: SUSP_MSG } },
+    };
+    const e2 = {
+      config: { url: '/appointments?professionalId=x' },
+      response: { status: 403, data: { message: SUSP_MSG } },
+    };
+    await expect(handler(e1)).rejects.toBe(e1);
+    await expect(handler(e2)).rejects.toBe(e2);
+    expect(loc.sets).toBe(1);
+    expect(loc.href).toBe('/login?reason=suspended');
+    expect(localStorage.getItem('token')).toBeNull();
+  });
+
+  it('23. mensagem parecida mas não exata não é tratada como suspensão', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/auth/profile' },
+      response: { status: 403, data: { message: 'Conta suspensa' } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('t');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('24. 403 de booking público (mensagem própria) não dispara logout de sessão', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/professional/jessicasantana');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/appointments' },
+      response: {
+        status: 403,
+        data: {
+          message:
+            'Este profissional não está aceitando novos agendamentos no momento.',
+        },
+      },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('t');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('25. isLoginRequest cobre config.url sem barra inicial (auth/login)', async () => {
+    localStorage.setItem('token', 'keep-me');
+    const loc = trackLocation('/login');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: 'auth/login' },
+      response: { status: 403, data: { message: SUSP_MSG } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('keep-me');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('26. isLoginRequest cobre URL completa com base (axios pode enviar assim)', async () => {
+    localStorage.setItem('token', 'keep-me');
+    const loc = trackLocation('/login');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: 'https://api.example.com/auth/login' },
+      response: { status: 403, data: { message: SUSP_MSG } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('keep-me');
+    expect(loc.sets).toBe(0);
+  });
 });
