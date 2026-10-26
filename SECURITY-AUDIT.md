@@ -391,6 +391,16 @@ Then: Retorna 400 Bad Request
 
 ## Changelog
 
+### 2026-10-26 - Backend: arquivamento lógico de Professional — soft delete (commit b2f6377)
+- Hard delete evitado — remoção operacional via `Professional.deletedAt` (lifecycle; `ProfessionalStatus` permanece ACTIVE/SUSPENDED); histórico preservado (User/Services/Availability/Periods/Exceptions/Appointments intactos — nenhum cancelamento automático); migration `20261026000000_add_professional_deleted_at` aditiva, versionada, **ainda NÃO aplicada em produção**
+- Login valida a senha antes de revelar o arquivamento (senha errada em User arquivado → 401 genérico — sem enumeração de estado); senha correta + arquivado → 403 com mensagem própria; **archive tem prioridade sobre a suspensão**
+- JWT antigo bloqueado: JwtStrategy consulta o banco em cada request — arquivado perde acesso às áreas privadas na próxima request (sem blacklist); ADMIN nunca é bloqueado
+- Arquivado oculto das listagens admin/pública (list/count/search filtram `deletedAt: null`); GET/edição/status de arquivado → 404; slug público → 404 (slug/email continuam reservados pelo unique); services/availability públicos de arquivado → `[]`; novo booking bloqueado server-side (403, zero Appointment criado); by-phone/cancel-public de appointments existentes intactos
+- **Leak `deletedAt` corrigido no quality review**: as responses públicas (findAll/findOneById/findOneBySlug) retornavam o model completo e exporiam o campo — removido antes da response; testes dedicados garantem a ausência
+- Race safety: edição/status escrevem com condição `deletedAt: null` (archive concorrente → P2025 → 409); P2025 do archive passa por re-check antes da resposta (arquivado → 204 · inexistente → 404 — nunca 204 cego); `deletedAt` escrevível somente pelo archive (create rejeita o campo)
+- `ARCHIVED_SESSION_FRONTEND_UX_PENDING=true`: interceptor frontend reconhece somente a mensagem de suspensão — UX de sessão arquivada pendente (backend já bloqueia com 403)
+- Testes: focados archive 49/49 (admin 22 · auth 12 · público 15); regressão suspension/edit 83/83; backend 260/260 (21 suítes); build PASS; prisma validate/generate PASS. Commit local, ainda não pushado
+
 ### 2026-10-26 - Frontend UX: Professional suspenso (commit e8a1a2d)
 - 403 comum NÃO encerra sessão; sessão encerrada somente com match EXATO da mensagem de suspensão (sem includes/regex) — evita falso logout; ADMIN protegido (nunca recebe a mensagem de suspensão)
 - `POST /auth/login` excluído do tratamento global do interceptor — a página trata inline; sem loop de redirect (login page não faz request privada no mount)

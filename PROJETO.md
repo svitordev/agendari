@@ -22,7 +22,8 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 - [x] Backend ADMIN de suspensão/reativação: `ProfessionalStatus` + `PATCH /admin/professionals/:id/status` + enforcement em JwtStrategy/login/booking (78bd46e — migration aplicada em produção em 2026-10-25; backend publicado + safe smoke PASS)
 - [x] Frontend ADMIN de suspensão/reativação: coluna Status (badge Ativo/Suspenso) + ação Suspender (com AlertDialog de confirmação) + Reativar direta na listagem (ee3a6e2)
 - [x] Frontend UX de Professional suspenso: login suspenso com aviso inline, sessão já ativa encerrada pelo interceptor (token removido, `/login?reason=suspended`), aviso público de indisponibilidade no perfil, CTA de novo agendamento bloqueado (e8a1a2d — commit local, ainda não pushado)
-- [ ] CRUD completo de profissionais pelo ADMIN — ainda pendente (suspensão/reativação completa — 78bd46e + ee3a6e2 + e8a1a2d; falta exclusão)
+- [x] Backend ADMIN de arquivamento lógico (soft delete): `Professional.deletedAt` + `DELETE /admin/professionals/:id` (204, idempotente, zero hard delete) + enforcement em auth/JWT/admin/público + leak `deletedAt` corrigido (b2f6377 — commit local, ainda não pushado; migration versionada, ainda NÃO aplicada em produção; frontend "Arquivar profissional" pendente; restore/purge são features futuras separadas)
+- [ ] CRUD completo de profissionais pelo ADMIN — ainda pendente (suspensão/reativação completa — 78bd46e + ee3a6e2 + e8a1a2d; exclusão operacional via arquivamento lógico concluída no backend — b2f6377; falta frontend "Arquivar profissional" + aplicação da migration em produção)
 - [ ] Correções de segurança identificadas na auditoria (ver abaixo)
 
 ### Fase 2 (SaaS) — Planejada
@@ -51,7 +52,7 @@ Plataforma de agendamento para manicures/profissionais da beleza, iniciando como
 | appointments | CRUD + rotas públicas (criação, consulta por telefone, cancelamento) |
 | services | CRUD ⚠️ SEM GUARDS |
 | availabilities | CRUD completo com guards + exceções + múltiplos períodos |
-| admin | RBAC (@Roles ADMIN): me, listagem read-only, criação Professional + User, edição (GET individual + PATCH completo de 5 campos; password/role fora), status operacional (suspensão/reativação — 78bd46e) |
+| admin | RBAC (@Roles ADMIN): me, listagem read-only, criação Professional + User, edição (GET individual + PATCH completo de 5 campos; password/role fora), status operacional (suspensão/reativação — 78bd46e), arquivamento lógico (soft delete via deletedAt — b2f6377) |
 | prisma | PrismaService @Global |
 
 ## Multi-tenant — Estado Atual

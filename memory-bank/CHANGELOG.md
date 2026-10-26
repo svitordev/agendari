@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## 2026-10-26 — Backend ADMIN: arquivamento lógico de Professional — soft delete (commit b2f6377)
+
+- **Decisão arquitetural**: NÃO existe hard delete de Professional — a remoção operacional é soft delete via `Professional.deletedAt DateTime?` (lifecycle); `ProfessionalStatus` permanece ACTIVE/SUSPENDED (estado operacional); sem `ARCHIVED` no enum; sem `deletedBy`/`deletionReason`/`isDeleted`
+- **Motivo**: hard delete não é seguro — Appointment→Professional é Restrict e AvailabilityException→Professional não tem onDelete (Restrict), e as demais relações geram cascade de User/Services/Availability; archive preserva os dados e evita perda histórica
+- **Migration**: `20261026000000_add_professional_deleted_at` — aditiva (`ADD COLUMN "deletedAt" TIMESTAMP(3)` nullable, sem default); registros existentes permanecem `deletedAt = null`; sem UPDATE/DELETE/DROP; nenhuma FK alterada; não destrutiva; **versionada, ainda NÃO aplicada em produção**
+- **Nova rota**: `DELETE /admin/professionals/:id` — `@UseGuards(JwtAuthGuard, RolesGuard)` + `@Roles(Role.ADMIN)`; sem body, sem DTO; sucesso → 204; inexistente → 404 "Profissional não encontrado."; já arquivado → 204 com ZERO escrita (deletedAt anterior preservado — idempotente); nenhum `prisma.professional.delete`/`deleteMany`
+- **P2025/concorrência**: update condicional `where { id, deletedAt: null }`; P2025 sozinho não distingue archive concorrente de remoção física → re-check: arquivado → 204; inexistente → 404 (nunca 204 cego)
+- **Dados preservados**: archive não deleta User, não cancela/apaga Appointments (futuros e históricos), não deleta Services/Availability/Periods/Exceptions; nenhum cancelamento automático; Professional com `user=null` pode ser arquivado normalmente (nenhum User criado)
+- **ADMIN**: listagem/count/search filtram `deletedAt: null` (archived não escapa pelo OR); paginação preservada; GET/edição/status de arquivado → 404; mudança de status NÃO restaura archived (restore é feature futura); status no-op normal continua sem escrita; create não aceita `deletedAt` controlável
+- **Race safety**: edição e status escrevem com condição `deletedAt: null` — archive entre pre-check e escrita → update não casa (P2025 → 409); nenhum update posterior altera arquivado
+- **Auth**: senha validada ANTES de revelar o arquivamento (senha errada → 401 genérico — sem enumeração); senha correta + arquivado → 403 "Este perfil foi desativado. Entre em contato com o administrador."; **archive tem prioridade sobre SUSPENDED**; JwtStrategy bloqueia JWT antigo de arquivado na próxima request privada; ADMIN nunca bloqueado
+- **Público**: listagem exclui arquivado; slug de arquivado → 404 (slug/email continuam reservados pelo unique — sem reutilização automática, sem 410/tombstone); services públicos de arquivado → `[]`; availability pública → `[]`; booking POST → 403 com mensagem própria e zero Appointment criado; available → `{ available: false, slots: [], message }`; by-phone e cancel-public de appointments existentes intactos
+- **Leak `deletedAt` (quality review)**: `findAll`/`findOneById`/`findOneBySlug` retornavam o model Prisma completo e exporiam `deletedAt` — campo removido das responses públicas; testes dedicados garantem a ausência
+- **Testes**: `admin-archive-professional.spec.ts` (22) + `auth-archived.spec.ts` (12) + `appointments-archived.spec.ts` (15); focados archive 49/49; regressão suspension/edit 83/83; backend total **260/260** (21 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
+- **Frontend**: inalterado (117/117, 9 suítes) — `ARCHIVED_SESSION_FRONTEND_UX_PENDING=true` (interceptor só reconhece a mensagem de suspensão; UX de sessão arquivada é a próxima etapa)
+- **Commit**: `b2f6377` — `feat(admin): add professional archive` (commit local — ainda não pushado)
+
 ## 2026-10-26 — Frontend UX: Professional suspenso (commit e8a1a2d)
 
 - **Contexto**: backend de suspensão já publicado (78bd46e) e listagem ADMIN com badge/ações concluída (ee3a6e2) — este commit é somente a UX frontend de suspensão

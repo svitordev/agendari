@@ -14,7 +14,7 @@ Auditoria completa realizada em 2026-08-27 (~70 arquivos verificados).
 | **appointments** | appointments.controller, appointments.service, create-appointment.dto, update-status.dto, cancel-public.dto | CRUD + rotas públicas. Business logic de conflitos, transições de status, ownership. |
 | **services** | services.controller, services.service, create-service.dto, update-service.dto | CRUD ⚠️ sem guards — ver PROJETO.md RISCO C1 |
 | **availabilities** | availabilities.controller, availabilities.service, 6 DTOs | CRUD completo + exceções + múltiplos períodos. Todos com guards. |
-| **admin** | admin.controller, admin.module, admin.service, dto, admin-create-professional.dto, admin-update-professional.dto, admin-update-professional-status.dto | RBAC (v1.2): GET /admin/me + GET /admin/professionals (listagem read-only) + POST /admin/professionals (criação Professional + User) + GET/PATCH /admin/professionals/:id (edição) + PATCH /admin/professionals/:id/status (suspensão/reativação) com @Roles(Role.ADMIN). |
+| **admin** | admin.controller, admin.module, admin.service, dto, admin-create-professional.dto, admin-update-professional.dto, admin-update-professional-status.dto | RBAC (v1.2): GET /admin/me + GET /admin/professionals (listagem read-only) + POST /admin/professionals (criação Professional + User) + GET/PATCH /admin/professionals/:id (edição) + PATCH /admin/professionals/:id/status (suspensão/reativação) + DELETE /admin/professionals/:id (arquivamento lógico — soft delete) com @Roles(Role.ADMIN). |
 | **prisma** | prisma.module, prisma.service | PrismaService @Global() |
 
 ### Validação Global
@@ -158,6 +158,33 @@ diferente → update SOMENTE de Professional.status
 - **Frontend**: badge Ativo/Suspenso + ações Suspender (com AlertDialog de confirmação)/Reativar (direta) implementados na listagem ADMIN (ee3a6e2 — já pushado); UX de login/sessão para suspenso e aviso na página pública implementados (e8a1a2d — commit local, ainda não pushado) — ver seção "UX frontend de Professional suspenso"
 - **Testes**: `admin-professional-status.spec.ts` (23) + `auth-suspension.spec.ts` (11) + `appointments-suspension.spec.ts` (13 — inclui perfil público); suíte completa backend **211/211** (18 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
 
+### Arquivamento lógico de Professional — soft delete (backend desde 2026-10-26, b2f6377 — migration ainda NÃO aplicada em produção)
+```
+ADMIN
+  ↓
+DELETE /admin/professionals/:id (sem body, sem DTO)
+  ↓
+precheck findUnique (inexistente → 404; já arquivado → 204 SEM escrita)
+  ↓
+update condicional `where { id, deletedAt: null }` escrevendo SOMENTE `deletedAt`
+  ↓
+P2025 → re-check: arquivado → 204 · inexistente → 404
+```
+- **Decisão arquitetural**: NÃO existe hard delete de Professional — a remoção operacional é soft delete via `Professional.deletedAt DateTime?` (lifecycle: null = operacional, != null = arquivado). `ProfessionalStatus` permanece ACTIVE/SUSPENDED (estado operacional) — sem `ARCHIVED` no enum; sem `deletedBy`/`deletionReason`/`isDeleted`
+- **Motivo do soft delete**: o hard delete atual não é seguro — Appointment→Professional é Restrict e AvailabilityException→Professional não tem onDelete (Restrict), e as demais relações geram cascade de User/Services/Availability; archive preserva os dados e evita perda histórica
+- **Migration**: `20261026000000_add_professional_deleted_at` — aditiva (`ADD COLUMN "deletedAt" TIMESTAMP(3)` nullable, sem default); registros existentes permanecem `deletedAt = null`; sem UPDATE/DELETE/DROP; nenhuma FK alterada; não destrutiva; **versionada, ainda NÃO executada em produção**
+- **Resposta/idempotência**: sucesso → **204** sem body · inexistente → **404** "Profissional não encontrado." · já arquivado → **204 sem escrita** (deletedAt anterior preservado); DELETE repetido é idempotente; Professional com `user=null` pode ser arquivado normalmente (nenhum User é criado)
+- **Dados preservados**: archive NÃO deleta User, NÃO cancela Appointment, NÃO apaga Appointment, NÃO deleta Service/Availability/Period/Exception — nenhum agendamento é cancelado automaticamente (futuros e históricos permanecem intactos)
+- **ADMIN**: listagem (findMany + count) e search filtram `deletedAt: null` (archived não escapa pelo OR do search); paginação preservada; GET individual, edição (PATCH) e status de arquivado → **404**; mudança de status NÃO restaura archived (restore é feature futura separada); status no-op para não-arquivado continua sem escrita; create não aceita `deletedAt` controlável (novo Professional nasce `deletedAt = null` pela semântica nullable do schema/banco)
+- **Race safety**: edição e status escrevem com condição `deletedAt: null` no update — se um archive entrar entre o pre-check e a escrita, o update não casa (P2025 → 409); nenhum update posterior altera arquivado; P2025 do archive passa por re-check antes da resposta (não declara 204 cegamente)
+- **Auth (login)**: a senha é validada ANTES de revelar o arquivamento (senha errada em User arquivado → 401 genérico — sem enumeração de estado); senha correta + arquivado → **403** "Este perfil foi desativado. Entre em contato com o administrador."; **archive tem prioridade sobre SUSPENDED** (arquivado+SUSPENDED → mensagem de arquivamento, não de suspensão); ADMIN nunca é bloqueado
+- **JWT antigo**: a JwtStrategy (que já consulta o banco em cada request) bloqueia Professional arquivado — JWT emitido antes do archive cai na próxima request privada (403); ADMIN não é afetado
+- **Público**: `GET /professionals` não retorna arquivado; `GET /professionals/slug/:slug` de arquivado → **404** (página sai do ar; slug permanece reservado — linha existe, unique vale, sem 410/tombstone nesta versão; email continua reservado — sem reutilização automática); services públicos de arquivado → `[]`; availability pública de arquivado → `[]`; booking `POST /appointments` de arquivado → **403** "Este profissional não está disponível para novos agendamentos." com zero Appointment criado; `GET /appointments/available` de arquivado → `{ available: false, slots: [], message }` (shape existente preservado)
+- **Appointments existentes**: `by-phone` e `cancel-public` intactos — cliente de profissional arquivada continua consultando e cancelando appointment já existente (histórico preservado)
+- **Leak `deletedAt` (corrigido no quality review)**: `findAll`/`findOneById`/`findOneBySlug` retornavam o model Prisma completo e passariam a expor `deletedAt` nas responses públicas — o campo é removido antes da response (guard interno); testes dedicados garantem a ausência da propriedade
+- **Testes**: `admin-archive-professional.spec.ts` (22) + `auth-archived.spec.ts` (12) + `appointments-archived.spec.ts` (15); backend total **260/260** (21 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
+- **Frontend**: ainda NÃO implementado — ver pendência `ARCHIVED_SESSION_FRONTEND_UX_PENDING=true`
+
 ### Ownership por Módulo
 | Módulo | Ownership | Observação |
 |---|---|---|
@@ -191,6 +218,7 @@ diferente → update SOMENTE de Professional.status
 - `useAuth()` hook com localStorage para JWT
 - Axios interceptors para Bearer token e redirect 401
 - Interceptor de 403 de **conta suspensa** (e8a1a2d): somente `403` + mensagem exata "Conta suspensa. Entre em contato com o administrador." em request privada → remove token + redirect `/login?reason=suspended`; `POST /auth/login` está excluído (a página trata inline); 403 comum NÃO faz logout; ver seção "UX frontend de Professional suspenso"
+- ⚠️ `ARCHIVED_SESSION_FRONTEND_UX_PENDING=true`: o interceptor reconhece SOMENTE a mensagem de suspensão — a mensagem de sessão arquivada ("Este perfil foi desativado. Entre em contato com o administrador.") ainda não tem UX específica no frontend (backend já bloqueia com 403; frontend dedicado será a próxima etapa)
 - ProtectedRoute wrapper no dashboard layout
 - ⚠️ localStorage vulnerável a XSS — ver PROJETO.md A2
 
@@ -300,7 +328,8 @@ GET /admin/professionals
 - Não-ADMIN em `/admin/login`: sessão removida, acesso recusado, permanece na página
 - Criação já existe ponta a ponta: backend (`POST /admin/professionals`, cfc4ad2) + formulário `/admin/professionals/new` (d7c81d8 — ver seção "Criação administrativa")
 - Edição já existe ponta a ponta: backend (`GET`/`PATCH /admin/professionals/:id`, 98f9a46) + formulário `/admin/professionals/[id]/edit` com ação "Editar" na listagem (714037a — ver seção "Backoffice ADMIN — frontend")
-- Suspensão/reativação: backend pronto (78bd46e — ver seção "Status operacional"; migration aplicada em produção em 2026-10-25); frontend das ações concluído (ee3a6e2); exclusão pendente
+- Suspensão/reativação: backend pronto (78bd46e — ver seção "Status operacional"; migration aplicada em produção em 2026-10-25); frontend das ações concluído (ee3a6e2)
+- Exclusão operacional (arquivamento lógico/soft delete): backend concluído (b2f6377 — ver seção "Arquivamento lógico"; migration ainda NÃO aplicada em produção); frontend "Arquivar profissional" pendente
 
 ## Pontos de Atenção
 Ver PROJETO.md → "Lista Priorizada de Problemas" para detalhes.

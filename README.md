@@ -49,7 +49,7 @@ pex-agendamento/
 | appointments | POST /appointments, GET /appointments/available, GET /appointments/by-phone, PATCH /appointments/:id/cancel-public, GET/PATCH/DELETE /appointments/* | parcial | CRUD + rotas públicas |
 | services | POST/GET/PATCH/DELETE /services/* | ❌ | CRUD serviços ⚠️ sem guard |
 | availabilities | CRUD completo + exceções + períodos | ✅ | Disponibilidade com guards |
-| admin | GET /admin/me, GET /admin/professionals, GET /admin/professionals/:id, POST /admin/professionals, PATCH /admin/professionals/:id, PATCH /admin/professionals/:id/status | ✅ | RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`); listagem read-only com paginação/search + criação de Professional + User (nested write, role forçada PROFESSIONAL) + edição administrativa (GET individual + PATCH completo de 5 campos; password/role fora) + mudança de status operacional (suspensão/reativação, idempotente) — criação, edição e status consumidos pelo backoffice frontend (badge + ações com confirmação — ee3a6e2) |
+| admin | GET /admin/me, GET /admin/professionals, GET /admin/professionals/:id, POST /admin/professionals, PATCH /admin/professionals/:id, PATCH /admin/professionals/:id/status, DELETE /admin/professionals/:id | ✅ | RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`); listagem read-only com paginação/search + criação de Professional + User (nested write, role forçada PROFESSIONAL) + edição administrativa (GET individual + PATCH completo de 5 campos; password/role fora) + mudança de status operacional (suspensão/reativação, idempotente) — criação, edição e status consumidos pelo backoffice frontend (badge + ações com confirmação — ee3a6e2) + arquivamento lógico (soft delete via `deletedAt`, 204 idempotente — b2f6377, frontend pendente) |
 
 ### Rotas Frontend
 
@@ -108,8 +108,9 @@ cd frontend && npm run dev
 - Backend usa `strictNullChecks: false` — **não alterar automaticamente** (migração planejada)
 - `.env` está em `.gitignore` — **nunca commitar**
 - JWT_SECRET é **obrigatório** — `requireJwtSecret()` em `main.ts` falha se ausente/ vazio
-- Backend: `npm test` roda Jest (211 testes, Prisma mockado, sem banco real)
+- Backend: `npm test` roda Jest (260 testes, 21 suítes, Prisma mockado, sem banco real)
 - Frontend: `npm run test` roda Vitest (117 testes, 9 suítes, mocks — sem backend real)
 - Migration `20261023000000_add_professional_status` (`Professional.status`, default ACTIVE) — **aplicada em produção (2026-10-25)**; backend correspondente publicado e validado por safe smoke
 - Suspensão de Professional no frontend (e8a1a2d — commit local, ainda não pushado): login de conta suspensa mostra aviso inline; sessão já ativa é encerrada (token removido, redirect `/login?reason=suspended`); perfil público suspenso continua visível com aviso; novo agendamento bloqueado pela UI — backend continua a autoridade. Detalhes em `docs/ARQUITETURA.md`
+- Arquivamento de Professional (soft delete — b2f6377 — commit local, ainda não pushado): remoção operacional é via `Professional.deletedAt` (lifecycle; `ProfessionalStatus` permanece ACTIVE/SUSPENDED); `DELETE /admin/professionals/:id` (ADMIN, sem body, 204, idempotente); sem hard delete — User/Services/Availability/Appointments preservados; arquivado some das listagens, slug público vira 404, login/JWT e novo booking bloqueados server-side; migration `20261026000000_add_professional_deleted_at` **ainda NÃO aplicada em produção**; frontend de archive ainda pendente. Detalhes em `docs/ARQUITETURA.md`
 - Documentação detalhada: ver `PROJETO.md` e `docs/ARQUITETURA.md`
