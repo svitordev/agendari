@@ -1,22 +1,25 @@
 import axios from 'axios';
 import {
+  isArchivedAccountError,
   isLoginRequest,
   isSuspendedAccountError,
+  ARCHIVED_LOGIN_PATH,
   SUSPENDED_LOGIN_PATH,
 } from './suspension';
 
-// Flag apenas para o redirect de suspensão em andamento — múltiplos 403 de
-// suspensão simultâneos produzem um único redirect. O redirect usa
-// window.location.href (reload completo), então este module state reseta
-// naturalmente na próxima carga da página. A remoção do token acontece antes
-// da flag — a sessão é sempre invalidada; apenas o redirect é deduplicado.
-let suspensionRedirectInProgress = false;
+// Flag única para o redirect de estado de conta (suspensão/arquivamento) em
+// andamento — múltiplos 403 simultâneos produzem um único redirect. O
+// redirect usa window.location.href (reload completo), então este module
+// state reseta naturalmente na próxima carga da página. A remoção do token
+// acontece antes da flag — a sessão é sempre invalidada; apenas o redirect é
+// deduplicado.
+let accountStateRedirectInProgress = false;
 
 // Test-only: a factory do vi.mock('axios') é cacheada por arquivo e
 // vi.isolateModules não existe no Vitest 3 — sem este reset, a flag vazaria
 // entre testes (ver tests/api-interceptor.test.ts).
-export function __resetSuspensionRedirectForTest(): void {
-  suspensionRedirectInProgress = false;
+export function __resetAccountStateRedirectForTest(): void {
+  accountStateRedirectInProgress = false;
 }
 
 const api = axios.create({
@@ -59,9 +62,19 @@ api.interceptors.response.use(
     // tratado inline pela página de login (sem logout/redirect aqui).
     if (isSuspendedAccountError(error) && !isLoginRequest(error.config)) {
       localStorage.removeItem('token');
-      if (typeof window !== 'undefined' && !suspensionRedirectInProgress) {
-        suspensionRedirectInProgress = true;
+      if (typeof window !== 'undefined' && !accountStateRedirectInProgress) {
+        accountStateRedirectInProgress = true;
         window.location.href = SUSPENDED_LOGIN_PATH;
+      }
+    }
+    // Perfil arquivado (mensagem exata do backend — ver lib/suspension.ts):
+    // mesmo tratamento da suspensão, com destino próprio. O 403 do próprio
+    // POST /auth/login é tratado inline pela página de login.
+    if (isArchivedAccountError(error) && !isLoginRequest(error.config)) {
+      localStorage.removeItem('token');
+      if (typeof window !== 'undefined' && !accountStateRedirectInProgress) {
+        accountStateRedirectInProgress = true;
+        window.location.href = ARCHIVED_LOGIN_PATH;
       }
     }
     return Promise.reject(error);

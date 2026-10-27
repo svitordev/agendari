@@ -5,7 +5,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { SUSPENDED_ACCOUNT_MESSAGE, SUSPENDED_REASON } from '@/lib/suspension';
+import {
+  ARCHIVED_ACCOUNT_MESSAGE,
+  ARCHIVED_REASON,
+  SUSPENDED_ACCOUNT_MESSAGE,
+  SUSPENDED_REASON,
+} from '@/lib/suspension';
 
 function LoginForm() {
   const [email, setEmail] = useState('');
@@ -14,12 +19,17 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const router = useRouter();
-  // Vindo de sessão previamente ativa que foi suspensa: aviso fixo local.
-  // A query nunca é renderizada diretamente (somente comparada com a
-  // constante); qualquer outro valor de ?reason é ignorado.
+  // Vindo de sessão previamente ativa que foi suspensa ou arquivada: aviso
+  // fixo local. A query nunca é renderizada diretamente (somente comparada
+  // com a constante); qualquer outro valor de ?reason é ignorado.
   const searchParams = useSearchParams();
-  const suspendedNotice =
-    searchParams.get('reason') === SUSPENDED_REASON ? SUSPENDED_ACCOUNT_MESSAGE : '';
+  const reason = searchParams.get('reason');
+  const accountNotice =
+    reason === SUSPENDED_REASON
+      ? SUSPENDED_ACCOUNT_MESSAGE
+      : reason === ARCHIVED_REASON
+        ? ARCHIVED_ACCOUNT_MESSAGE
+        : '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,8 +62,8 @@ function LoginForm() {
               <label className="text-sm font-medium text-gray-700" htmlFor="password">Senha</label>
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="******" required />
             </div>
-            {suspendedNotice && (
-              <p role="alert" className="text-sm font-medium text-red-600">{suspendedNotice}</p>
+            {accountNotice && (
+              <p role="alert" className="text-sm font-medium text-red-600">{accountNotice}</p>
             )}
             {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>

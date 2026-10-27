@@ -240,3 +240,57 @@ describe('/professional/[slug] — conta suspensa', () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe('/professional/[slug] — perfil arquivado', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    availableResponse = {
+      available: true,
+      slots: [{ time: '10:00', available: true }],
+      message: undefined,
+    };
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.stubGlobal('alert', vi.fn());
+  });
+
+  it('archived (GET 404 do backend) cai no not-found atual', async () => {
+    mockGet.mockRejectedValue({
+      response: { status: 404, data: { message: 'Profissional não encontrado.' } },
+    });
+    renderPage();
+    expect(await screen.findByText('Profissional não encontrado.')).toBeInTheDocument();
+  });
+
+  it('not-found não revela archived/desativado', async () => {
+    mockGet.mockRejectedValue({
+      response: { status: 404, data: { message: 'Profissional não encontrado.' } },
+    });
+    renderPage();
+    await screen.findByText('Profissional não encontrado.');
+    expect(document.body.textContent).not.toMatch(/desativado/i);
+    expect(document.body.textContent).not.toMatch(/arquiv/i);
+    expect(document.body.textContent).not.toMatch(/archived/i);
+  });
+
+  it('not-found não mostra formulário de booking', async () => {
+    mockGet.mockRejectedValue({
+      response: { status: 404, data: { message: 'Profissional não encontrado.' } },
+    });
+    renderPage();
+    await screen.findByText('Profissional não encontrado.');
+    expect(
+      screen.queryByText('Escolha o serviço, a data e o melhor horário para você.'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('regressão: ACTIVE continua normal com a zona archived presente', async () => {
+    mockApiFor(profAtivo);
+    renderPage();
+    expect(await screen.findByText('Jéssica Santana')).toBeInTheDocument();
+    expect(
+      screen.queryByText('Profissional não encontrado.'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Confirmar agendamento/i })).toBeInTheDocument();
+  });
+});

@@ -155,3 +155,83 @@ describe('/login — conta suspensa', () => {
     expect(localStorage.getItem('token')).toBe('tok');
   });
 });
+
+describe('/login — perfil arquivado', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    mockQuery = '';
+  });
+
+  const ARCH_MSG =
+    'Este perfil foi desativado. Entre em contato com o administrador.';
+
+  it('login archived direto (403 exato) mostra a mensagem fixa com role=alert', async () => {
+    mockPost.mockRejectedValue({
+      response: { status: 403, data: { message: ARCH_MSG } },
+    });
+    render(<LoginPage />);
+    fillAndSubmit();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(ARCH_MSG);
+  });
+
+  it('login archived NÃO salva token e NÃO redireciona para o dashboard', async () => {
+    mockPost.mockRejectedValue({
+      response: { status: 403, data: { message: ARCH_MSG } },
+    });
+    render(<LoginPage />);
+    fillAndSubmit();
+    expect(await screen.findByText(ARCH_MSG)).toBeInTheDocument();
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(mockRouter.push).not.toHaveBeenCalled();
+  });
+
+  it('?reason=archived mostra o texto fixo local sem submit', async () => {
+    mockQuery = 'reason=archived';
+    render(<LoginPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(ARCH_MSG);
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('?reason=archived não mostra a mensagem de suspensão', async () => {
+    mockQuery = 'reason=archived';
+    render(<LoginPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(ARCH_MSG);
+    expect(screen.queryByText(SUSP_MSG)).not.toBeInTheDocument();
+  });
+
+  it('?reason=suspended continua mostrando a mensagem de suspensão', async () => {
+    mockQuery = 'reason=suspended';
+    render(<LoginPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(SUSP_MSG);
+    expect(screen.queryByText(ARCH_MSG)).not.toBeInTheDocument();
+  });
+
+  it('query arbitrária continua ignorada com o mapeamento archived', async () => {
+    mockQuery = `reason=${encodeURIComponent(ARCH_MSG)}`;
+    render(<LoginPage />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('desativado');
+  });
+
+  it('403 comum no login não vira mensagem de arquivamento', async () => {
+    mockPost.mockRejectedValue({
+      response: { status: 403, data: { message: 'Permissão insuficiente.' } },
+    });
+    render(<LoginPage />);
+    fillAndSubmit();
+    expect(await screen.findByText('Permissão insuficiente.')).toBeInTheDocument();
+    expect(screen.queryByText(ARCH_MSG)).not.toBeInTheDocument();
+  });
+
+  it('401 normal mantém a mensagem de credenciais', async () => {
+    mockPost.mockRejectedValue({
+      response: { status: 401, data: { message: 'Credenciais inválidas.' } },
+    });
+    render(<LoginPage />);
+    fillAndSubmit();
+    expect(await screen.findByText('Credenciais inválidas.')).toBeInTheDocument();
+    expect(screen.queryByText(ARCH_MSG)).not.toBeInTheDocument();
+  });
+});

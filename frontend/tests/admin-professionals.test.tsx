@@ -289,6 +289,13 @@ describe('/admin/professionals — ações por status', () => {
     await screen.findByText('Sem User SA');
     expect(screen.getByRole('button', { name: 'Suspender' })).toBeEnabled();
   });
+
+  it('listagem NÃO exibe ação de arquivamento (decisão: archive só na página de edição)', async () => {
+    mockGet.mockResolvedValue(pageData([itemComUser, itemSemUser, itemSuspenso]));
+    render(<AdminProfessionalsPage />);
+    await screen.findByText('Ana Pro');
+    expect(screen.queryByText(/arquivar/i)).not.toBeInTheDocument();
+  });
 });
 
 describe('/admin/professionals — diálogo de suspensão', () => {

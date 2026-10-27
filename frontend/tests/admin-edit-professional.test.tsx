@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
-const { mockPush, mockReplace, mockGet, mockPatch, mockToastSuccess } = vi.hoisted(() => ({
+const { mockPush, mockReplace, mockGet, mockPatch, mockDelete, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
   mockPush: vi.fn(),
   mockReplace: vi.fn(),
   mockGet: vi.fn(),
   mockPatch: vi.fn(),
+  mockDelete: vi.fn(),
   mockToastSuccess: vi.fn(),
+  mockToastError: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -26,12 +28,13 @@ vi.mock('@/lib/api', () => ({
     get: mockGet,
     post: vi.fn(),
     patch: mockPatch,
+    delete: mockDelete,
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
 }));
 
 vi.mock('sonner', () => ({
-  toast: { success: mockToastSuccess, error: vi.fn() },
+  toast: { success: mockToastSuccess, error: mockToastError },
 }));
 
 import AdminEditProfessionalPage from '@/app/admin/(protected)/professionals/[id]/edit/page';
@@ -446,5 +449,231 @@ describe('/admin/professionals/[id]/edit — race (seqRef)', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.getByLabelText('Slug')).toHaveValue('nova'); // nova permanece
     expect(screen.queryByText('Obsoleta')).not.toBeInTheDocument(); // obsoleta descartada
+  });
+});
+
+describe('/admin/professionals/[id]/edit — arquivamento', () => {
+  const noContent = { data: undefined, status: 204 };
+
+  async function openDialog() {
+    fireEvent.click(screen.getByRole('button', { name: 'Arquivar profissional' }));
+    return screen.findByRole('alertdialog');
+  }
+
+  function actionButton(dialog: HTMLElement) {
+    return within(dialog).getByRole('button', { name: /arquivar profissional/i });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it('A1. zona de perigo mostra o botão quando a página está pronta', async () => {
+    await loaded();
+    expect(screen.getByRole('button', { name: 'Arquivar profissional' })).toBeEnabled();
+  });
+
+  it('A2. user=null: archive funciona de verdade (dialog → DELETE → toast → redirect)', async () => {
+    mockGet.mockResolvedValue({ data: { professional: details.professional, user: null } });
+    mockDelete.mockResolvedValue({ data: undefined, status: 204 });
+    render(<AdminEditProfessionalPage params={PARAMS} />);
+    await screen.findByText('Este profissional não possui usuário associado.');
+    const btn = screen.getByRole('button', { name: 'Arquivar profissional' });
+    expect(btn).toBeEnabled();
+    fireEvent.click(btn);
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /arquivar profissional/i }));
+    // Archive não depende de User — DELETE no id do Professional.
+    await vi.waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/admin/professionals/p1'));
+    await vi.waitFor(() =>
+      expect(mockToastSuccess).toHaveBeenCalledWith('Profissional arquivado com sucesso.'),
+    );
+    expect(mockPush).toHaveBeenCalledWith('/admin/professionals');
+    expect(mockPatch).not.toHaveBeenCalled();
+  });
+
+  it('A3. abrir o diálogo não dispara nenhum request', async () => {
+    await loaded();
+    await openDialog();
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockGet).toHaveBeenCalledTimes(1); // somente o GET inicial
+  });
+
+  it('A4. título exato e descrição completa; sem palavra "definitiv"', async () => {
+    await loaded();
+    const dialog = await openDialog();
+    expect(within(dialog).getByText('Arquivar profissional?')).toBeInTheDocument();
+    const desc = within(dialog).getByText(/Agendamentos existentes serão preservados/);
+    expect(desc.textContent).toMatch(/deixa de aparecer publicamente/);
+    expect(desc.textContent).toMatch(/login fica bloqueado/);
+    expect(desc.textContent).toMatch(/Novos agendamentos ficam bloqueados/);
+    expect(desc.textContent).toMatch(/dados e o histórico são mantidos/);
+    expect(desc.textContent).toMatch(/Não há restauração/);
+    expect(document.body.textContent).not.toMatch(/definitiv/);
+  });
+
+  it('A5. Cancelar fecha o diálogo com zero DELETE', async () => {
+    await loaded();
+    const dialog = await openDialog();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    await vi.waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockToastSuccess).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled(); // cancelar também não redireciona
+  });
+
+  it('A6. confirmar → DELETE no endpoint exato, sem segundo argumento (sem body)', async () => {
+    await loaded();
+    mockDelete.mockResolvedValue(noContent);
+    const dialog = await openDialog();
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() => expect(mockDelete).toHaveBeenCalledTimes(1));
+    expect(mockDelete.mock.calls[0]).toHaveLength(1); // api.delete(url) — sem body
+    expect(mockDelete).toHaveBeenCalledWith('/admin/professionals/p1');
+  });
+
+  it('A7. pending: ação vira "Arquivando..." disabled e Cancelar fica disabled', async () => {
+    await loaded();
+    let resolveDelete: (v: unknown) => void = () => {};
+    mockDelete.mockReturnValue(new Promise((r) => { resolveDelete = r; }));
+    const dialog = await openDialog();
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() => expect(mockDelete).toHaveBeenCalledTimes(1));
+    expect(within(dialog).getByRole('button', { name: 'Arquivando...' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+    resolveDelete(noContent);
+  });
+
+  it('A8. duplo clique síncrono (race real, antes do rerender disabled) → exatamente 1 DELETE', async () => {
+    await loaded();
+    let resolveDelete: (v: unknown) => void = () => {};
+    mockDelete.mockReturnValue(new Promise((r) => { resolveDelete = r; }));
+    const dialog = await openDialog();
+    const action = actionButton(dialog);
+    fireEvent.click(action); // 1º clique — dispara o DELETE e liga a ref
+    fireEvent.click(action); // 2º clique síncrono — botão ainda não re-renderizou
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockDelete).toHaveBeenCalledTimes(1); // guard síncrono (ref) bloqueou
+    resolveDelete(noContent);
+  });
+
+  it('A9. 204 → toast de sucesso + redirect para a listagem', async () => {
+    await loaded();
+    mockDelete.mockResolvedValue(noContent);
+    const dialog = await openDialog();
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() =>
+      expect(mockToastSuccess).toHaveBeenCalledWith('Profissional arquivado com sucesso.'),
+    );
+    expect(mockPush).toHaveBeenCalledWith('/admin/professionals');
+    expect(mockToastError).not.toHaveBeenCalled();
+    // Sucesso sem segunda request: nenhum PATCH/refetch além do GET inicial.
+    expect(mockPatch).not.toHaveBeenCalled();
+    expect(mockGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('A10. 204 idempotente (confirmação repetida) → mesmo caminho de sucesso', async () => {
+    await loaded();
+    mockDelete.mockResolvedValue(noContent);
+    let dialog = await openDialog();
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() => expect(mockDelete).toHaveBeenCalledTimes(1));
+    // O diálogo fecha no sucesso; a página permanece montada (push mockado).
+    await vi.waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    dialog = await openDialog();
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() => expect(mockDelete).toHaveBeenCalledTimes(2));
+    expect(mockToastSuccess).toHaveBeenCalledTimes(2);
+    expect(mockPush).toHaveBeenCalledTimes(2);
+  });
+
+  it('A11. 404 → toast "Profissional não encontrado." + redirect para a listagem', async () => {
+    await loaded();
+    mockDelete.mockRejectedValue(apiError(404, 'Profissional não encontrado.'));
+    const dialog = await openDialog();
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() =>
+      expect(mockToastError).toHaveBeenCalledWith('Profissional não encontrado.'),
+    );
+    expect(mockPush).toHaveBeenCalledWith('/admin/professionals');
+    expect(mockToastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('A12. 403 comum → erro seguro inline, sem logout e sem redirect', async () => {
+    localStorage.setItem('token', 't');
+    await loaded();
+    mockDelete.mockRejectedValue(apiError(403));
+    const dialog = await openDialog();
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() =>
+      expect(within(dialog).getByText('Acesso negado para esta área.')).toBeInTheDocument(),
+    );
+    expect(localStorage.getItem('token')).toBe('t');
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockToastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('A13. 5xx → permanece na página com erro seguro e retry funciona', async () => {
+    await loaded();
+    mockDelete.mockRejectedValueOnce(apiError(500));
+    const dialog = await openDialog();
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() =>
+      expect(
+        within(dialog).getByText('Não foi possível arquivar o profissional. Tente novamente.'),
+      ).toBeInTheDocument(),
+    );
+    expect(mockPush).not.toHaveBeenCalled();
+    mockDelete.mockResolvedValue(noContent);
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() => expect(mockDelete).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(mockToastSuccess).toHaveBeenCalledWith('Profissional arquivado com sucesso.'),
+    );
+    expect(mockPush).toHaveBeenCalledWith('/admin/professionals');
+  });
+
+  it('A14. erro de rede (sem response) → erro seguro, permanece na página', async () => {
+    await loaded();
+    mockDelete.mockRejectedValue(new Error('Network Error'));
+    const dialog = await openDialog();
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() =>
+      expect(
+        within(dialog).getByText('Não foi possível arquivar o profissional. Tente novamente.'),
+      ).toBeInTheDocument(),
+    );
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockToastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('A15. 401 não gera tratamento local (interceptor cuida do logout)', async () => {
+    await loaded();
+    mockDelete.mockRejectedValue(apiError(401));
+    const dialog = await openDialog();
+    fireEvent.click(actionButton(dialog));
+    await vi.waitFor(() => expect(mockDelete).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockToastSuccess).not.toHaveBeenCalled();
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it('A16. loading inicial não mostra a zona de perigo', () => {
+    mockGet.mockReturnValue(new Promise(() => {}));
+    render(<AdminEditProfessionalPage params={PARAMS} />);
+    expect(screen.queryByRole('button', { name: 'Arquivar profissional' })).not.toBeInTheDocument();
+  });
+
+  it('A17. save normal (PATCH) continua funcionando com a zona de perigo presente', async () => {
+    await loaded();
+    mockPatch.mockResolvedValue({ data: details });
+    submit();
+    await vi.waitFor(() =>
+      expect(mockToastSuccess).toHaveBeenCalledWith('Profissional atualizado com sucesso.'),
+    );
+    expect(mockPush).toHaveBeenCalledWith('/admin/professionals');
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 });

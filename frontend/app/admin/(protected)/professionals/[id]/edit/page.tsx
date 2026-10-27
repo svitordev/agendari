@@ -6,6 +6,16 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -46,6 +56,13 @@ export default function AdminEditProfessionalPage({
   const [formError, setFormError] = useState('');
   // Sequência dos requests — resposta obsoleta é descartada (race).
   const seqRef = useRef(0);
+  // Arquivamento — estado dedicado, independente do formulário.
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState('');
+  // Espelho síncrono de isArchiving — o Radix dispara close no clique da ação
+  // (antes do commit do estado); sem a ref o diálogo fecharia durante o pending.
+  const archivingRef = useRef(false);
 
   const {
     register,
@@ -100,6 +117,53 @@ export default function AdminEditProfessionalPage({
 
   // user=null: exibição somente como referência — nenhum submit, nenhum valor fictício.
   const userNull = status === 'ready' && data !== null && data.user === null;
+
+  // Abre o diálogo de confirmação — sem request implícito ao abrir.
+  const openArchiveDialog = () => {
+    setArchiveError('');
+    setArchiveDialogOpen(true);
+  };
+
+  // O diálogo permanece aberto durante pending/erro retry; fecha em
+  // sucesso, 404 e Cancelar. Cancelar é bloqueado durante o request.
+  const handleArchiveDialogOpenChange = (open: boolean) => {
+    if (archivingRef.current) return;
+    setArchiveDialogOpen(open);
+  };
+
+  // Confirmação do arquivamento — irreversível pela interface nesta versão.
+  const confirmArchive = async () => {
+    if (archivingRef.current) return; // duplo submit — defesa em profundidade
+    archivingRef.current = true;
+    setIsArchiving(true);
+    setArchiveError('');
+    try {
+      await api.delete(`/admin/professionals/${routeId}`);
+      // 204 (inclusive idempotente — já arquivado) — sucesso.
+      toast.success('Profissional arquivado com sucesso.');
+      setArchiveDialogOpen(false);
+      router.push('/admin/professionals');
+    } catch (err) {
+      const errStatus = (err as ApiError)?.response?.status;
+      if (errStatus === 404) {
+        toast.error('Profissional não encontrado.');
+        setArchiveDialogOpen(false);
+        router.push('/admin/professionals');
+      } else if (errStatus === 403) {
+        // 403 comum (não é a mensagem de conta do interceptor) — erro inline
+        // seguro, sem logout.
+        setArchiveError('Acesso negado para esta área.');
+      } else if (errStatus === 401) {
+        // 401 é tratado pelo interceptor do Axios (logout/redirect) — não duplicar.
+      } else {
+        // 5xx/rede — permanece na página com erro seguro e retry.
+        setArchiveError('Não foi possível arquivar o profissional. Tente novamente.');
+      }
+    } finally {
+      archivingRef.current = false;
+      setIsArchiving(false);
+    }
+  };
 
   const onSubmit = async (form: AdminUpdateProfessionalPayload) => {
     if (isSubmitting || !data?.user) return; // user=null nunca submete; duplo submit
@@ -314,6 +378,52 @@ export default function AdminEditProfessionalPage({
           </CardContent>
         </Card>
       ) : null}
+
+      {/* Zona de perigo — visível sempre que a página está pronta, inclusive user=null. */}
+      {status === 'ready' && data && (
+        <Card className="border-red-200">
+          <CardHeader>
+            <CardTitle className="text-red-700">Zona de perigo</CardTitle>
+            <CardDescription>
+              Arquivar desativa o perfil. Não há restauração pela interface nesta versão.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="destructive" onClick={openArchiveDialog} disabled={isArchiving}>
+              Arquivar profissional
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <AlertDialog open={archiveDialogOpen} onOpenChange={handleArchiveDialogOpenChange}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Arquivar profissional?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O perfil deixa de aparecer publicamente e o login fica bloqueado.
+              Novos agendamentos ficam bloqueados. Agendamentos existentes serão
+              preservados. Os dados e o histórico são mantidos. Não há restauração
+              pela interface nesta versão.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {archiveError && (
+            <p role="alert" className="text-sm text-red-600">
+              {archiveError}
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isArchiving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void confirmArchive()}
+              disabled={isArchiving}
+            >
+              {isArchiving ? 'Arquivando...' : 'Arquivar profissional'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

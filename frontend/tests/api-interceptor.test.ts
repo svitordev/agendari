@@ -106,11 +106,11 @@ async function freshHandler(): Promise<(error: unknown) => Promise<unknown>> {
     default: { create: () => FreshInstance; __instance: FreshInstance };
   };
   const apiMod = (await import('@/lib/api')) as unknown as {
-    __resetSuspensionRedirectForTest?: () => void;
+    __resetAccountStateRedirectForTest?: () => void;
   };
   // Garante flag limpa mesmo quando o factory mock não é re-executado entre
   // testes (o handler usado é o do módulo importado acima — última chamada).
-  apiMod.__resetSuspensionRedirectForTest?.();
+  apiMod.__resetAccountStateRedirectForTest?.();
   const calls =
     axiosMod.default.__instance.interceptors.response.use.mock.calls;
   const call = calls[calls.length - 1];
@@ -272,5 +272,204 @@ describe('interceptor — conta suspensa', () => {
     await expect(handler(error)).rejects.toBe(error);
     expect(localStorage.getItem('token')).toBe('keep-me');
     expect(loc.sets).toBe(0);
+  });
+});
+
+/*
+ * ========================================================
+ * PERFIL ARQUIVADO — 403 com a mensagem exata do backend
+ * (auth.service.ts/jwt.strategy.ts). Flag de redirect
+ * compartilhada com suspensão — um único redirect por sessão.
+ * ========================================================
+ */
+
+const ARCH_MSG = 'Este perfil foi desativado. Entre em contato com o administrador.';
+
+describe('interceptor — perfil arquivado', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('27. 403 archived em request privada remove token e redireciona', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/auth/profile' },
+      response: { status: 403, data: { message: ARCH_MSG } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(loc.href).toBe('/login?reason=archived');
+    expect(loc.sets).toBe(1);
+  });
+
+  it('28. múltiplos 403 archived simultâneos produzem um único redirect', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const e1 = {
+      config: { url: '/auth/profile' },
+      response: { status: 403, data: { message: ARCH_MSG } },
+    };
+    const e2 = {
+      config: { url: '/appointments?professionalId=x' },
+      response: { status: 403, data: { message: ARCH_MSG } },
+    };
+    await expect(handler(e1)).rejects.toBe(e1);
+    await expect(handler(e2)).rejects.toBe(e2);
+    expect(loc.sets).toBe(1);
+    expect(loc.href).toBe('/login?reason=archived');
+  });
+
+  it('29. flag compartilhada: suspended + archived juntos produzem um único redirect', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const e1 = {
+      config: { url: '/auth/profile' },
+      response: { status: 403, data: { message: SUSP_MSG } },
+    };
+    const e2 = {
+      config: { url: '/services' },
+      response: { status: 403, data: { message: ARCH_MSG } },
+    };
+    await expect(handler(e1)).rejects.toBe(e1);
+    await expect(handler(e2)).rejects.toBe(e2);
+    expect(loc.sets).toBe(1); // primeiro vence; token removido nos dois
+    expect(loc.href).toBe('/login?reason=suspended');
+    expect(localStorage.getItem('token')).toBeNull();
+  });
+
+  it('30. 403 archived no próprio POST /auth/login NÃO faz tratamento global', async () => {
+    localStorage.setItem('token', 'keep-me');
+    const loc = trackLocation('/login');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/auth/login' },
+      response: { status: 403, data: { message: ARCH_MSG } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('keep-me');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('31. archived com url sem barra inicial (auth/login) é excluído do redirect', async () => {
+    localStorage.setItem('token', 'keep-me');
+    const loc = trackLocation('/login');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: 'auth/login' },
+      response: { status: 403, data: { message: ARCH_MSG } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('keep-me');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('32. archived com URL completa com base é excluído do redirect', async () => {
+    localStorage.setItem('token', 'keep-me');
+    const loc = trackLocation('/login');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: 'https://api.example.com/auth/login' },
+      response: { status: 403, data: { message: ARCH_MSG } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('keep-me');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('33. mensagem parecida mas não exata não é tratada como archived', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/auth/profile' },
+      response: { status: 403, data: { message: 'Este perfil foi desativado' } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('t');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('34. 403 comum não vira archived (sem logout/redirect)', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/services' },
+      response: { status: 403, data: { message: 'Permissão insuficiente.' } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('t');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('35. 403 de booking público (mensagem própria) não dispara logout archived', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/professional/jessicasantana');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/appointments' },
+      response: {
+        status: 403,
+        data: {
+          message:
+            'Este profissional não está aceitando novos agendamentos no momento.',
+        },
+      },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBe('t');
+    expect(loc.sets).toBe(0);
+  });
+
+  it('36. regressão: mensagem exata de suspensão segue redirecionando para suspended', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/auth/profile' },
+      response: { status: 403, data: { message: SUSP_MSG } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(loc.href).toBe('/login?reason=suspended');
+    expect(loc.sets).toBe(1);
+  });
+
+  it('37. archived em página /admin/* vai para /login?reason=archived (destino único)', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/admin/professionals');
+    const handler = await freshHandler();
+    const error = {
+      config: { url: '/admin/professionals' },
+      response: { status: 403, data: { message: ARCH_MSG } },
+    };
+    await expect(handler(error)).rejects.toBe(error);
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(loc.href).toBe('/login?reason=archived');
+    expect(loc.sets).toBe(1);
+  });
+
+  it('38. cross-state inverso: archived primeiro, suspended depois → um único redirect', async () => {
+    localStorage.setItem('token', 't');
+    const loc = trackLocation('/dashboard');
+    const handler = await freshHandler();
+    const e1 = {
+      config: { url: '/auth/profile' },
+      response: { status: 403, data: { message: ARCH_MSG } },
+    };
+    const e2 = {
+      config: { url: '/services' },
+      response: { status: 403, data: { message: SUSP_MSG } },
+    };
+    await expect(handler(e1)).rejects.toBe(e1);
+    await expect(handler(e2)).rejects.toBe(e2);
+    // O segundo não pode sobrescrever o destino já iniciado.
+    expect(loc.sets).toBe(1);
+    expect(loc.href).toBe('/login?reason=archived');
+    expect(localStorage.getItem('token')).toBeNull();
   });
 });
