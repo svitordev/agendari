@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## 2026-10-28 — Fechamento de produção: frontend de arquivamento deployado + safe smoke PASS
+
+- **Publicados**: `1e3c913` (feat) + `a53319c` (docs) pushados para origin/main e deployados no Vercel — validados em produção
+- **Safe smoke (PASS, sem archive real)**: `?reason=archived` com mensagem exata; query arbitrária não refletida; `reason=suspended` regressão PASS; login/dashboard/perfil público do Professional ACTIVE PASS; ADMIN login/listagem/edit page/zona de perigo/AlertDialog/botão destructive PASS; Cancelar fecha o diálogo com zero DELETE, zero PATCH, zero toast de sucesso; diálogo reabre normalmente
+- **Zero writes** (deliberadamente não destrutivo): archive DELETE real = 0; status writes = 0; Appointment creates = 0; Professional creates = 0
+- **Estado final do banco**: TOTAL Professionals = 1; ARCHIVED_COUNT = 0; Professional real (jessicasantana) ACTIVE, `deletedAt = null` — nenhum Professional real foi arquivado para o smoke
+- **Não executados em produção** (cobertos pelos testes automatizados): archive real, archived session redirect, direct archived login — não arquivar o único Professional real apenas para smoke
+- **CRUD ADMIN**: CONCLUÍDO EM PRODUÇÃO (listagem, criação, edição, suspensão, reativação, arquivamento lógico, frontend archive, auth/archive UX, produção validada). Restore, filtro/tela de arquivados, hard purge, política de retenção, audit log dedicado e deletedBy/reason são backlog futuro separado
+
 ## 2026-10-27 — Frontend ADMIN: arquivamento de Professional — UX archived (commit 1e3c913)
 
 - **Commit**: `1e3c913` — `feat(admin): add professional archive frontend` (commit local — ainda NÃO pushado; Vercel ainda NÃO validado; Professional real NÃO arquivado)

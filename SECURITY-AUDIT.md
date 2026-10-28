@@ -391,6 +391,15 @@ Then: Retorna 400 Bad Request
 
 ## Changelog
 
+### 2026-10-28 - Fechamento de produção: frontend de arquivamento (Vercel) — safe smoke PASS
+- `?reason=archived` validado em produção com a mensagem exata; query arbitrária não refletida no DOM (mapeamento fixo); `reason=suspended` sem regressão
+- Ação de archive exige confirmação via AlertDialog obrigatório; Cancelar não dispara nenhum write (zero DELETE, zero PATCH, zero toast); diálogo reabre normalmente após cancelamento
+- Ação de archive não existe na listagem (somente edit page) — reduz risco de ação acidental
+- Nenhum Professional real foi usado para write no smoke: DELETE real = 0, PATCH = 0; estado final TOTAL=1, ARCHIVED_COUNT=0; Professional real ACTIVE, `deletedAt = null`
+- Motivos administrativos não vazam publicamente (archived → 404/not-found atual)
+- Logout final das sessões utilizado com localStorage vazio; nenhuma credencial impressa
+- Cenários reais (archive, archived session redirect, direct archived login) permanecem cobertos pelos testes automatizados: frontend 159/159 (9 suítes), backend 260/260 (21 suítes), build PASS
+
 ### 2026-10-27 - Frontend: UX de Professional arquivado (commit 1e3c913)
 - Match EXATO da mensagem archived (`===`, sem includes/regex) em `lib/suspension.ts`; match de suspended preservado; mensagem parecida mas não exata NÃO dispara logout
 - 403 comum NÃO causa logout (booking/RBAC ADMIN continuam inline); 401 preservado; `POST /auth/login` excluído do logout para suspended E archived (direct login trata inline — sem loop)

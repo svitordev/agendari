@@ -158,7 +158,7 @@ diferente → update SOMENTE de Professional.status
 - **Frontend**: badge Ativo/Suspenso + ações Suspender (com AlertDialog de confirmação)/Reativar (direta) implementados na listagem ADMIN (ee3a6e2 — já pushado); UX de login/sessão para suspenso e aviso na página pública implementados (e8a1a2d — já pushado) — ver seção "UX frontend de Professional suspenso"
 - **Testes**: `admin-professional-status.spec.ts` (23) + `auth-suspension.spec.ts` (11) + `appointments-suspension.spec.ts` (13 — inclui perfil público); suíte completa backend **211/211** (18 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
 
-### Arquivamento lógico de Professional — soft delete (backend desde 2026-10-26, b2f6377 — migration aplicada em produção em 2026-10-26 + safe smoke PASS; frontend implementado 2026-10-27, 1e3c913 — commit local, ainda não pushado)
+### Arquivamento lógico de Professional — soft delete (backend desde 2026-10-26, b2f6377 — migration aplicada em produção em 2026-10-26 + safe smoke PASS; frontend 1e3c913 — pushado, deployado no Vercel e validado em produção em 2026-10-28)
 ```
 ADMIN
   ↓
@@ -183,7 +183,7 @@ P2025 → re-check: arquivado → 204 · inexistente → 404
 - **Appointments existentes**: `by-phone` e `cancel-public` intactos — cliente de profissional arquivada continua consultando e cancelando appointment já existente (histórico preservado)
 - **Leak `deletedAt` (corrigido no quality review)**: `findAll`/`findOneById`/`findOneBySlug` retornavam o model Prisma completo e passariam a expor `deletedAt` nas responses públicas — o campo é removido antes da response (guard interno); testes dedicados garantem a ausência da propriedade
 - **Testes**: `admin-archive-professional.spec.ts` (22) + `auth-archived.spec.ts` (12) + `appointments-archived.spec.ts` (15); backend total **260/260** (21 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
-- **Frontend**: implementado (1e3c913 — commit local, ainda não pushado) — ver seção "UX frontend de Professional arquivado"
+- **Frontend**: implementado, publicado e validado em produção (1e3c913 — pushado, deployado no Vercel, safe smoke PASS em 2026-10-28) — ver seção "UX frontend de Professional arquivado"
 
 ### Ownership por Módulo
 | Módulo | Ownership | Observação |
@@ -257,7 +257,7 @@ P2025 → re-check: arquivado → 204 · inexistente → 404
 - **Detalhe de teste**: `__resetAccountStateRedirectForTest` (renomeado de `__resetSuspensionRedirectForTest` em 1e3c913) exportado por `lib/api.ts` é usado SOMENTE pelos testes do interceptor (Vitest 3 não tem `vi.isolateModules`; a factory do mock do axios é cacheada por arquivo) — não é API pública da aplicação
 - **Testes**: `api-interceptor` 25/25 (401 preservado; suspensão remove token + redirect; `/auth/login` excluído — inclusive shapes `auth/login` e URL completa; 403 comum; ADMIN; múltiplos 403 → 1 redirect; mensagem parecida mas não exata; booking 403; +12 de archived — ver seção abaixo); `login-suspension` 17/17 (mensagem inline + `role=alert`, sem token, sem redirect, query segura, login normal pós-aviso; +8 archived); `public-profile-suspension` 13/13 (ACTIVE com POST real, SUSPENDED visível + aviso + enum oculto + CTA inoperante com zero POST, available vazio, race 403, sem redirect/404; +4 archived)
 
-### UX frontend de Professional arquivado (1e3c913 — commit local, ainda não pushado)
+### UX frontend de Professional arquivado (1e3c913 — pushado, deployado no Vercel e validado em produção em 2026-10-28)
 - **Escopo**: somente frontend; nenhuma dependency nova (o `components/ui/alert-dialog.tsx` já existente foi reutilizado); backend/Prisma/migration intocados
 - **Ação na edit page**: botão "Arquivar profissional" (variant destructive) em seção separada de perigo no final de `/admin/professionals/[id]/edit` — SOMENTE na edit page (a listagem não tem botão archive — reduz risco de ação acidental); visível em `status === 'ready'` inclusive com user=null (archive não depende de User)
 - **AlertDialog obrigatório**: título "Arquivar profissional?"; descrição comunica: perfil deixa de aparecer publicamente, login bloqueado, novos agendamentos bloqueados, dados/histórico preservados, "Agendamentos existentes serão preservados.", sem restauração pela interface nesta versão (sem linguagem de exclusão definitiva); botões Cancelar + "Arquivar profissional" (destructive); sem digitação de slug/nome
@@ -272,6 +272,10 @@ P2025 → re-check: arquivado → 204 · inexistente → 404
 - **Types**: sem `ARCHIVED` no `ProfessionalStatus`; sem `deletedAt` nos types frontend — archive continua lifecycle backend, não status operacional exibido
 - **Testes**: edit archive 17 (A1–A17: botão, user=null fluxo completo, título/descrição, Cancelar zero DELETE/zero redirect, DELETE sem body, pending, double submit com race síncrona, 204, 204 idempotente, 404, 403, 5xx+retry, rede, 401, loading, save preservado); interceptor archived 12 (27–38: remove token + redirect, dedupe, cross-state nas duas ordens, login excluído nas 3 shapes, mensagem parecida, 403 comum, booking, regressão suspended); login archived 8; public archived 4; listagem sem botão archive 1; ordem de execução independente verificada (interceptor sozinho 25; +login 42; +edit 86; ordem inversa 86; focados 132); `npm run build` PASS
 - **Quality review**: 5 fragilidades LOW apenas em testes, corrigidas (user=null fluxo completo; Cancelar prova zero redirect; double-click com race síncrona real; sucesso prova ausência de segunda request; cross-state na ordem inversa); nenhuma correção de production code foi necessária
+- **Produção (2026-10-28 — safe smoke PASS)**: `1e3c913` + `a53319c` pushados e deployados no Vercel; `?reason=archived` exato OK; query arbitrária não refletida; `reason=suspended` regressão PASS; login/dashboard/perfil público do Professional ACTIVE PASS; ADMIN login/listagem/edit page/zona de perigo/AlertDialog/botão destructive PASS; Cancelar fecha o diálogo com zero DELETE, zero PATCH, zero toast de sucesso; diálogo reabre normalmente após cancelamento
+- **Zero writes no smoke** (deliberadamente não destrutivo): archive DELETE real = 0; status writes = 0; Appointment creates = 0; Professional creates = 0
+- **Estado final do banco (produção)**: TOTAL Professionals = 1; ARCHIVED_COUNT = 0; Professional real (jessicasantana) ACTIVE, `deletedAt = null` — nenhum Professional real foi arquivado para o smoke
+- **Cenários não executados em produção** (permanecem cobertos pelos testes automatizados — não arquivar o único Professional real apenas para smoke): `REAL_ARCHIVE_PRODUCTION_TEST=NOT_EXECUTED`; `OLD_SESSION_ARCHIVED_REDIRECT=NOT_EXECUTED`; `DIRECT_ARCHIVED_LOGIN=NOT_EXECUTED`
 
 ## Banco de Dados (PostgreSQL + Prisma 6)
 
@@ -345,7 +349,7 @@ GET /admin/professionals
 - Criação já existe ponta a ponta: backend (`POST /admin/professionals`, cfc4ad2) + formulário `/admin/professionals/new` (d7c81d8 — ver seção "Criação administrativa")
 - Edição já existe ponta a ponta: backend (`GET`/`PATCH /admin/professionals/:id`, 98f9a46) + formulário `/admin/professionals/[id]/edit` com ação "Editar" na listagem (714037a — ver seção "Backoffice ADMIN — frontend")
 - Suspensão/reativação: backend pronto (78bd46e — ver seção "Status operacional"; migration aplicada em produção em 2026-10-25); frontend das ações concluído (ee3a6e2)
-- Exclusão operacional (arquivamento lógico/soft delete): backend concluído e publicado (b2f6377 — ver seção "Arquivamento lógico"; migration aplicada em produção em 2026-10-26 + safe smoke PASS); frontend "Arquivar profissional" implementado (1e3c913 — commit local, ainda não pushado; fechamento de produção pendente de deploy/smoke frontend)
+- Exclusão operacional (arquivamento lógico/soft delete): backend concluído e publicado (b2f6377 — ver seção "Arquivamento lógico"; migration aplicada em produção em 2026-10-26 + safe smoke PASS); frontend "Arquivar profissional" publicado e validado (1e3c913 — pushado, deployado no Vercel, safe smoke PASS em 2026-10-28); CRUD ADMIN concluído em produção — restore/filtro/purge são backlog futuro separado
 
 ## Pontos de Atenção
 Ver PROJETO.md → "Lista Priorizada de Problemas" para detalhes.
