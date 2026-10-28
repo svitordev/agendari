@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## 2026-10-27 — Frontend ADMIN: arquivamento de Professional — UX archived (commit 1e3c913)
+
+- **Commit**: `1e3c913` — `feat(admin): add professional archive frontend` (commit local — ainda NÃO pushado; Vercel ainda NÃO validado; Professional real NÃO arquivado)
+- **Escopo**: somente frontend — nenhum arquivo de backend/Prisma/migration alterado; nenhuma dependency npm nova (`components/ui/alert-dialog.tsx` já existente reutilizado)
+- **Ação**: botão "Arquivar profissional" (variant destructive) SOMENTE na edit page `/admin/professionals/[id]/edit`, em seção separada de perigo no final da página — a listagem NÃO tem botão archive (reduz risco de ação acidental); visível inclusive com user=null (archive não depende de User)
+- **Confirmação**: AlertDialog obrigatório — título "Arquivar profissional?"; descrição: perfil deixa de aparecer publicamente, login bloqueado, novos agendamentos bloqueados, dados/histórico preservados, "Agendamentos existentes serão preservados.", sem restauração pela interface nesta versão; botões Cancelar + "Arquivar profissional"; sem digitação de slug/nome
+- **Request**: `DELETE /admin/professionals/:id` com ZERO body (sem deletedAt/status/reason/payload vazio) — `api.delete(url)` com um único argumento (provado por teste)
+- **Loading/race**: estado dedicado `isArchiving` + guard síncrono `archivingRef` (o Radix dispara close no clique da ação — a ref mantém o pending "Arquivando..." visível e bloqueia double submit); Cancelar/confirm protegidos durante pending; erro permite retry
+- **Respostas**: 204 (inclusive idempotente) → toast "Profissional arquivado com sucesso." + redirect `/admin/professionals`; 404 → toast "Profissional não encontrado." + redirect (sem página stale); 403 comum → erro seguro inline sem logout; 401 → interceptor existente (não duplicado); 5xx/rede → página permanece, loading resetado, erro seguro, retry
+- **Constants** (`lib/suspension.ts` — fonte única de account-state): `ARCHIVED_ACCOUNT_MESSAGE` (espelho exato do backend), `ARCHIVED_REASON`, `ARCHIVED_LOGIN_PATH`, `isArchivedAccountError` — match EXATO, sem includes/regex
+- **Interceptor**: flag única compartilhada `accountStateRedirectInProgress` (suspended + archived deduplicam entre si — segundo erro não sobrescreve destino); `POST /auth/login` excluído para ambos (direct login trata inline); 401 preservado; 403 comum/booking/RBAC sem logout; helper test-only renomeado `__resetAccountStateRedirectForTest`
+- **Login**: direct archived → mensagem inline `role="alert"`, zero token salvo, zero redirect dashboard; `?reason=archived` → texto fixo frontend (query arbitrária nunca refletida); suspended preservado
+- **Público**: archived → 404 → UX not-found atual ("Profissional não encontrado.") — não revela archive/desativação/motivo; ACTIVE/SUSPENDED preservados
+- **Types**: sem `ARCHIVED` no `ProfessionalStatus`; sem `deletedAt` nos types frontend — archive continua lifecycle backend
+- **Testes**: frontend **159/159** (9 suítes); api-interceptor 25/25; interceptor+login 42/42; interceptor+login+edit 86/86; ordem inversa 86/86; focados 132/132; `npm run build` PASS; backend permanece 260/260 (21 suítes)
+- **Quality review**: 5 fragilidades LOW apenas em testes, corrigidas (user=null fluxo completo; Cancelar prova zero redirect; double-click com race síncrona real; sucesso prova ausência de segunda request; cross-state na ordem inversa); nenhuma correção de production code foi necessária
+- **Pendências**: push do commit; deploy Vercel + production smoke frontend; restore; filtro archived; purge
+
 ## 2026-10-26 — Backend ADMIN: arquivamento lógico de Professional — soft delete (commit b2f6377)
 
 - **Decisão arquitetural**: NÃO existe hard delete de Professional — a remoção operacional é soft delete via `Professional.deletedAt DateTime?` (lifecycle); `ProfessionalStatus` permanece ACTIVE/SUSPENDED (estado operacional); sem `ARCHIVED` no enum; sem `deletedBy`/`deletionReason`/`isDeleted`

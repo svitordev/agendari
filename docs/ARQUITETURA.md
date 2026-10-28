@@ -155,10 +155,10 @@ diferente → update SOMENTE de Professional.status
 - **Available**: `GET /appointments/available` para suspenso → `{ available: false, slots: [], message }` (mesmo shape já usado pelo endpoint); Availability não é modificada
 - **Appointments existentes**: suspensão NÃO cancela, NÃO apaga, NÃO altera histórico; Services/Availability preservados; `by-phone` e `cancel-public` continuam funcionando (fluxos do cliente — deliberado para não punir clientes com appointment existente)
 - **Perfil público**: Professional SUSPENDED continua publicamente consultável — `GET /professionals` e `GET /professionals/slug/:slug` agora expõem `status` (campo do model); perfil não vira 404 por suspensão; UI futura informará indisponibilidade para novos bookings
-- **Frontend**: badge Ativo/Suspenso + ações Suspender (com AlertDialog de confirmação)/Reativar (direta) implementados na listagem ADMIN (ee3a6e2 — já pushado); UX de login/sessão para suspenso e aviso na página pública implementados (e8a1a2d — commit local, ainda não pushado) — ver seção "UX frontend de Professional suspenso"
+- **Frontend**: badge Ativo/Suspenso + ações Suspender (com AlertDialog de confirmação)/Reativar (direta) implementados na listagem ADMIN (ee3a6e2 — já pushado); UX de login/sessão para suspenso e aviso na página pública implementados (e8a1a2d — já pushado) — ver seção "UX frontend de Professional suspenso"
 - **Testes**: `admin-professional-status.spec.ts` (23) + `auth-suspension.spec.ts` (11) + `appointments-suspension.spec.ts` (13 — inclui perfil público); suíte completa backend **211/211** (18 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
 
-### Arquivamento lógico de Professional — soft delete (backend desde 2026-10-26, b2f6377 — migration ainda NÃO aplicada em produção)
+### Arquivamento lógico de Professional — soft delete (backend desde 2026-10-26, b2f6377 — migration aplicada em produção em 2026-10-26 + safe smoke PASS; frontend implementado 2026-10-27, 1e3c913 — commit local, ainda não pushado)
 ```
 ADMIN
   ↓
@@ -172,7 +172,7 @@ P2025 → re-check: arquivado → 204 · inexistente → 404
 ```
 - **Decisão arquitetural**: NÃO existe hard delete de Professional — a remoção operacional é soft delete via `Professional.deletedAt DateTime?` (lifecycle: null = operacional, != null = arquivado). `ProfessionalStatus` permanece ACTIVE/SUSPENDED (estado operacional) — sem `ARCHIVED` no enum; sem `deletedBy`/`deletionReason`/`isDeleted`
 - **Motivo do soft delete**: o hard delete atual não é seguro — Appointment→Professional é Restrict e AvailabilityException→Professional não tem onDelete (Restrict), e as demais relações geram cascade de User/Services/Availability; archive preserva os dados e evita perda histórica
-- **Migration**: `20261026000000_add_professional_deleted_at` — aditiva (`ADD COLUMN "deletedAt" TIMESTAMP(3)` nullable, sem default); registros existentes permanecem `deletedAt = null`; sem UPDATE/DELETE/DROP; nenhuma FK alterada; não destrutiva; **versionada, ainda NÃO executada em produção**
+- **Migration**: `20261026000000_add_professional_deleted_at` — aditiva (`ADD COLUMN "deletedAt" TIMESTAMP(3)` nullable, sem default); registros existentes permanecem `deletedAt = null`; sem UPDATE/DELETE/DROP; nenhuma FK alterada; não destrutiva; **aplicada em produção (2026-10-26)** — backend correspondente publicado e validado por safe smoke
 - **Resposta/idempotência**: sucesso → **204** sem body · inexistente → **404** "Profissional não encontrado." · já arquivado → **204 sem escrita** (deletedAt anterior preservado); DELETE repetido é idempotente; Professional com `user=null` pode ser arquivado normalmente (nenhum User é criado)
 - **Dados preservados**: archive NÃO deleta User, NÃO cancela Appointment, NÃO apaga Appointment, NÃO deleta Service/Availability/Period/Exception — nenhum agendamento é cancelado automaticamente (futuros e históricos permanecem intactos)
 - **ADMIN**: listagem (findMany + count) e search filtram `deletedAt: null` (archived não escapa pelo OR do search); paginação preservada; GET individual, edição (PATCH) e status de arquivado → **404**; mudança de status NÃO restaura archived (restore é feature futura separada); status no-op para não-arquivado continua sem escrita; create não aceita `deletedAt` controlável (novo Professional nasce `deletedAt = null` pela semântica nullable do schema/banco)
@@ -183,7 +183,7 @@ P2025 → re-check: arquivado → 204 · inexistente → 404
 - **Appointments existentes**: `by-phone` e `cancel-public` intactos — cliente de profissional arquivada continua consultando e cancelando appointment já existente (histórico preservado)
 - **Leak `deletedAt` (corrigido no quality review)**: `findAll`/`findOneById`/`findOneBySlug` retornavam o model Prisma completo e passariam a expor `deletedAt` nas responses públicas — o campo é removido antes da response (guard interno); testes dedicados garantem a ausência da propriedade
 - **Testes**: `admin-archive-professional.spec.ts` (22) + `auth-archived.spec.ts` (12) + `appointments-archived.spec.ts` (15); backend total **260/260** (21 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
-- **Frontend**: ainda NÃO implementado — ver pendência `ARCHIVED_SESSION_FRONTEND_UX_PENDING=true`
+- **Frontend**: implementado (1e3c913 — commit local, ainda não pushado) — ver seção "UX frontend de Professional arquivado"
 
 ### Ownership por Módulo
 | Módulo | Ownership | Observação |
@@ -201,7 +201,7 @@ P2025 → re-check: arquivado → 204 · inexistente → 404
 | Rota | Auth | Descrição |
 |---|---:|---|
 | `/` | ❌ | Landing page |
-| `/login` | ❌ | Login (exibe aviso quando `?reason=suspended` — e8a1a2d) |
+| `/login` | ❌ | Login (exibe aviso quando `?reason=suspended` — e8a1a2d — ou `?reason=archived` — 1e3c913) |
 | `/agendamentos` | ❌ | Consulta pública de agendamentos por telefone |
 | `/professional/[slug]` | ❌ | Página pública do profissional (aviso de indisponibilidade para suspensos — e8a1a2d) |
 | `/dashboard` | ✅ | Agendamentos do profissional (ativos/finalizados) |
@@ -210,15 +210,15 @@ P2025 → re-check: arquivado → 204 · inexistente → 404
 | `/dashboard/profile` | ✅ | Perfil + theme colors |
 | `/admin/login` | ❌ | Login do backoffice (somente ADMIN conclui o acesso) |
 | `/admin` | ADMIN | Painel administrativo read-only |
-| `/admin/professionals` | ADMIN | Listagem de profissionais + botão "Novo profissional" + coluna Status (badge) + ações Suspender/Reativar (ee3a6e2) |
+| `/admin/professionals` | ADMIN | Listagem de profissionais + botão "Novo profissional" + coluna Status (badge) + ações Suspender/Reativar (ee3a6e2) — sem botão archive (decisão de UX: ação somente na edição) |
 | `/admin/professionals/new` | ADMIN | Formulário de criação de profissional (d7c81d8) |
-| `/admin/professionals/[id]/edit` | ADMIN | Formulário de edição de profissional (714037a) |
+| `/admin/professionals/[id]/edit` | ADMIN | Formulário de edição de profissional (714037a) + zona de perigo com ação "Arquivar profissional" via AlertDialog (1e3c913) |
 
 ### Autenticação
 - `useAuth()` hook com localStorage para JWT
 - Axios interceptors para Bearer token e redirect 401
 - Interceptor de 403 de **conta suspensa** (e8a1a2d): somente `403` + mensagem exata "Conta suspensa. Entre em contato com o administrador." em request privada → remove token + redirect `/login?reason=suspended`; `POST /auth/login` está excluído (a página trata inline); 403 comum NÃO faz logout; ver seção "UX frontend de Professional suspenso"
-- ⚠️ `ARCHIVED_SESSION_FRONTEND_UX_PENDING=true`: o interceptor reconhece SOMENTE a mensagem de suspensão — a mensagem de sessão arquivada ("Este perfil foi desativado. Entre em contato com o administrador.") ainda não tem UX específica no frontend (backend já bloqueia com 403; frontend dedicado será a próxima etapa)
+- ✅ `ARCHIVED_SESSION_FRONTEND_UX_PENDING=false` (1e3c913): o interceptor reconhece as DUAS mensagens exatas (suspensão e arquivamento) com flag de redirect compartilhada; ver seção "UX frontend de Professional arquivado"
 - ProtectedRoute wrapper no dashboard layout
 - ⚠️ localStorage vulnerável a XSS — ver PROJETO.md A2
 
@@ -237,9 +237,9 @@ P2025 → re-check: arquivado → 204 · inexistente → 404
 - user=null: aviso "Este profissional não possui usuário associado.", Salvar desabilitado, nenhum PATCH possível, nenhum valor fictício, nenhum User criado automaticamente (backend manteria 409 se tentado).
 - PATCH: payload objeto explícito com exatamente os 5 campos (sem spread); duplo submit bloqueado (`isSubmitting`, botão "Salvando..." — teste com Promise pendente prova 1 única chamada). Erros: GET 404 → estado dedicado; PATCH 404 → permanece na tela com formulário preenchido; 409 email/slug mapeados por mensagem exata para o campo; 409 user ausente e 409 residual → erro geral; 409 desconhecido → fallback seguro; 403 sem logout; 5xx/rede → mensagem genérica + retry; 401 → interceptor existente. Redirect + toast apenas no 200. Tipos adicionados em `types/index.ts`: `AdminProfessionalDetails`, `AdminUpdateProfessionalPayload`, `AdminUpdateProfessionalResponse`.
 - Dívida não bloqueante: `AdminRoute` e o shell do layout usam instâncias independentes de `useAuth()` → dois `GET /auth/profile` por navegação na área protegida (sem impacto de segurança; não corrigido nesta entrega)
-- Testes frontend: Vitest + Testing Library (jsdom), 9 suítes, 117/117 passando, sem backend real (mocks) — suíte da listagem 32/32 cobre badge, ações por status, AlertDialog, payload exato, pending por id (A/B independentes), duplo clique, autoridade da response, non-optimistic, item stale não reinserido, 404 preservando busca/página, erros e regressão; UX de suspensão: api-interceptor 13/13, login-suspension 9/9, public-profile-suspension 9/9
+- Testes frontend: Vitest + Testing Library (jsdom), 9 suítes, **159/159** passando, sem backend real (mocks) — suíte da listagem 33/33 cobre badge, ações por status, AlertDialog, payload exato, pending por id (A/B independentes), duplo clique, autoridade da response, non-optimistic, item stale não reinserido, 404 preservando busca/página, erros, regressão e ausência de botão archive; edição+arquivamento: admin-edit-professional 44/44 (inclui 17 de archive); UX de account-state: api-interceptor 25/25, login-suspension 17/17, public-profile-suspension 13/13
 
-### UX frontend de Professional suspenso (e8a1a2d — commit local, ainda não pushado)
+### UX frontend de Professional suspenso (e8a1a2d — já pushado)
 - **Constantes** (`frontend/lib/suspension.ts`): `SUSPENDED_ACCOUNT_MESSAGE` (espelho exato da string do backend), `SUSPENDED_REASON`, `SUSPENDED_LOGIN_PATH` — fonte única compartilhada pelo interceptor e pela login page (evita divergência entre as pontas)
 - **Match exato**: suspensão reconhecida SOMENTE com `status === 403` **E** `message ===` a string exata — sem `includes`, sem regex, sem 403 isolado; 403 comum (ex.: "Permissão insuficiente." do RolesGuard) não encerra sessão; ADMIN nunca é tratado como suspenso
 - **Três tratamentos distintos**: 401 = token inválido/expirado (comportamento existente preservado); 403 suspensão = Professional autenticado porém suspenso (remove token + redirect); 403 comum = acesso negado sem logout
@@ -254,8 +254,24 @@ P2025 → re-check: arquivado → 204 · inexistente → 404
 - **Booking race**: página carregada ACTIVE → ADMIN suspende → confirmação → backend 403 com mensagem PRÓPRIA de booking → mensagem segura exibida, sem assumir sucesso, sem falso logout (mensagem diferente — não confunde com suspensão de sessão)
 - **Histórico do cliente**: `CustomerAppointments`/by-phone/cancel-public intocados — suspensão não remove acesso do cliente ao histórico existente
 - **Tipos**: `ProfessionalStatus` reutilizado (nenhuma union paralela); `status` adicionado aos tipos públicos onde o backend garante presença; sem `any` novo
-- **Detalhe de teste**: `__resetSuspensionRedirectForTest` exportado por `lib/api.ts` é usado SOMENTE pelos testes do interceptor (Vitest 3 não tem `vi.isolateModules`; a factory do mock do axios é cacheada por arquivo) — não é API pública da aplicação
-- **Testes**: `api-interceptor` 13/13 (401 preservado; suspensão remove token + redirect; `/auth/login` excluído — inclusive shapes `auth/login` e URL completa; 403 comum; ADMIN; múltiplos 403 → 1 redirect; mensagem parecida mas não exata; booking 403); `login-suspension` 9/9 (mensagem inline + `role=alert`, sem token, sem redirect, query segura, login normal pós-aviso); `public-profile-suspension` 9/9 (ACTIVE com POST real, SUSPENDED visível + aviso + enum oculto + CTA inoperante com zero POST, available vazio, race 403, sem redirect/404)
+- **Detalhe de teste**: `__resetAccountStateRedirectForTest` (renomeado de `__resetSuspensionRedirectForTest` em 1e3c913) exportado por `lib/api.ts` é usado SOMENTE pelos testes do interceptor (Vitest 3 não tem `vi.isolateModules`; a factory do mock do axios é cacheada por arquivo) — não é API pública da aplicação
+- **Testes**: `api-interceptor` 25/25 (401 preservado; suspensão remove token + redirect; `/auth/login` excluído — inclusive shapes `auth/login` e URL completa; 403 comum; ADMIN; múltiplos 403 → 1 redirect; mensagem parecida mas não exata; booking 403; +12 de archived — ver seção abaixo); `login-suspension` 17/17 (mensagem inline + `role=alert`, sem token, sem redirect, query segura, login normal pós-aviso; +8 archived); `public-profile-suspension` 13/13 (ACTIVE com POST real, SUSPENDED visível + aviso + enum oculto + CTA inoperante com zero POST, available vazio, race 403, sem redirect/404; +4 archived)
+
+### UX frontend de Professional arquivado (1e3c913 — commit local, ainda não pushado)
+- **Escopo**: somente frontend; nenhuma dependency nova (o `components/ui/alert-dialog.tsx` já existente foi reutilizado); backend/Prisma/migration intocados
+- **Ação na edit page**: botão "Arquivar profissional" (variant destructive) em seção separada de perigo no final de `/admin/professionals/[id]/edit` — SOMENTE na edit page (a listagem não tem botão archive — reduz risco de ação acidental); visível em `status === 'ready'` inclusive com user=null (archive não depende de User)
+- **AlertDialog obrigatório**: título "Arquivar profissional?"; descrição comunica: perfil deixa de aparecer publicamente, login bloqueado, novos agendamentos bloqueados, dados/histórico preservados, "Agendamentos existentes serão preservados.", sem restauração pela interface nesta versão (sem linguagem de exclusão definitiva); botões Cancelar + "Arquivar profissional" (destructive); sem digitação de slug/nome
+- **Request**: `api.delete(url)` com ZERO body (um único argumento, provado por teste); nada de `deletedAt`/`status`/`reason`/payload vazio
+- **Loading/race**: estado dedicado `isArchiving` + espelho síncrono `archivingRef` (o Radix dispara close no clique da ação; sem a ref o diálogo fecharia durante o pending); double submit bloqueado (2 cliques → 1 DELETE); Cancelar/confirm ficam protegidos durante pending; diálogo permanece em erro para retry; fecha em sucesso/404/Cancelar
+- **Respostas**: 204 (inclusive idempotente — archive concorrente) → toast "Profissional arquivado com sucesso." + redirect `/admin/professionals` (sem segunda request); 404 → toast "Profissional não encontrado." + redirect (sem página stale); 403 comum → erro seguro inline, sem logout; 401 → interceptor existente (não duplicado); 5xx/rede → página permanece, loading resetado, erro seguro, retry possível
+- **Constants** (`lib/suspension.ts` — fonte única de account-state, agora suspensão + arquivamento): `ARCHIVED_ACCOUNT_MESSAGE` (espelho exato da string do backend), `ARCHIVED_REASON`, `ARCHIVED_LOGIN_PATH`, `isArchivedAccountError` — match EXATO (`===`), sem includes/regex; match de suspensão preservado
+- **Interceptor**: flag ÚNICA compartilhada `accountStateRedirectInProgress` — múltiplos 403 de account-state (suspended e archived entre si) produzem um único redirect; o segundo erro não sobrescreve o destino já iniciado; token removido em todos os matches; `POST /auth/login` excluído para ambos os estados; 401 e 403 comum/booking/RBAC intactos
+- **Reset test-only**: `__resetAccountStateRedirectForTest` — existe apenas para isolar o module state nos testes; não faz parte do fluxo runtime
+- **Login direto archived**: 403 com mensagem exata → mensagem inline `role="alert"`, zero token salvo, zero redirect ao dashboard, sem loop global; `?reason=archived` → texto fixo frontend; query arbitrária nunca refletida (mapeamento fixo: somente `suspended`/`archived`); wrong password (401) preserva a mensagem normal
+- **Público**: archived → 404 → UX not-found atual ("Profissional não encontrado.") — não revela archive/desativação/motivo; matriz pública: ACTIVE normal; SUSPENDED visível com aviso + booking bloqueado; ARCHIVED 404/not-found
+- **Types**: sem `ARCHIVED` no `ProfessionalStatus`; sem `deletedAt` nos types frontend — archive continua lifecycle backend, não status operacional exibido
+- **Testes**: edit archive 17 (A1–A17: botão, user=null fluxo completo, título/descrição, Cancelar zero DELETE/zero redirect, DELETE sem body, pending, double submit com race síncrona, 204, 204 idempotente, 404, 403, 5xx+retry, rede, 401, loading, save preservado); interceptor archived 12 (27–38: remove token + redirect, dedupe, cross-state nas duas ordens, login excluído nas 3 shapes, mensagem parecida, 403 comum, booking, regressão suspended); login archived 8; public archived 4; listagem sem botão archive 1; ordem de execução independente verificada (interceptor sozinho 25; +login 42; +edit 86; ordem inversa 86; focados 132); `npm run build` PASS
+- **Quality review**: 5 fragilidades LOW apenas em testes, corrigidas (user=null fluxo completo; Cancelar prova zero redirect; double-click com race síncrona real; sucesso prova ausência de segunda request; cross-state na ordem inversa); nenhuma correção de production code foi necessária
 
 ## Banco de Dados (PostgreSQL + Prisma 6)
 
@@ -329,7 +345,7 @@ GET /admin/professionals
 - Criação já existe ponta a ponta: backend (`POST /admin/professionals`, cfc4ad2) + formulário `/admin/professionals/new` (d7c81d8 — ver seção "Criação administrativa")
 - Edição já existe ponta a ponta: backend (`GET`/`PATCH /admin/professionals/:id`, 98f9a46) + formulário `/admin/professionals/[id]/edit` com ação "Editar" na listagem (714037a — ver seção "Backoffice ADMIN — frontend")
 - Suspensão/reativação: backend pronto (78bd46e — ver seção "Status operacional"; migration aplicada em produção em 2026-10-25); frontend das ações concluído (ee3a6e2)
-- Exclusão operacional (arquivamento lógico/soft delete): backend concluído (b2f6377 — ver seção "Arquivamento lógico"; migration ainda NÃO aplicada em produção); frontend "Arquivar profissional" pendente
+- Exclusão operacional (arquivamento lógico/soft delete): backend concluído e publicado (b2f6377 — ver seção "Arquivamento lógico"; migration aplicada em produção em 2026-10-26 + safe smoke PASS); frontend "Arquivar profissional" implementado (1e3c913 — commit local, ainda não pushado; fechamento de produção pendente de deploy/smoke frontend)
 
 ## Pontos de Atenção
 Ver PROJETO.md → "Lista Priorizada de Problemas" para detalhes.

@@ -391,6 +391,16 @@ Then: Retorna 400 Bad Request
 
 ## Changelog
 
+### 2026-10-27 - Frontend: UX de Professional arquivado (commit 1e3c913)
+- Match EXATO da mensagem archived (`===`, sem includes/regex) em `lib/suspension.ts`; match de suspended preservado; mensagem parecida mas não exata NÃO dispara logout
+- 403 comum NÃO causa logout (booking/RBAC ADMIN continuam inline); 401 preservado; `POST /auth/login` excluído do logout para suspended E archived (direct login trata inline — sem loop)
+- Query arbitrária nunca refletida na UI (mapeamento fixo: somente `suspended`/`archived` → texto fixo frontend)
+- Redirect dedupe compartilhado: flag única `accountStateRedirectInProgress` — suspended e archived entre si produzem um único redirect; segundo erro não sobrescreve destino
+- Double-submit guard síncrono (`archivingRef`) — 2 cliques → 1 DELETE; `DELETE` enviado com zero body; confirmação via AlertDialog obrigatório antes do request
+- Público archived continua 404/not-found atual — frontend não revela o motivo (coerente com a decisão backend)
+- Testes frontend 159/159 (9 suítes; api-interceptor 25/25; focados 132/132); `npm run build` PASS; backend permanece 260/260
+- Commit local ainda NÃO pushado; Vercel ainda NÃO validado; Professional real NÃO arquivado
+
 ### 2026-10-26 - Backend: arquivamento lógico de Professional — soft delete (commit b2f6377)
 - Hard delete evitado — remoção operacional via `Professional.deletedAt` (lifecycle; `ProfessionalStatus` permanece ACTIVE/SUSPENDED); histórico preservado (User/Services/Availability/Periods/Exceptions/Appointments intactos — nenhum cancelamento automático); migration `20261026000000_add_professional_deleted_at` aditiva, versionada, **ainda NÃO aplicada em produção**
 - Login valida a senha antes de revelar o arquivamento (senha errada em User arquivado → 401 genérico — sem enumeração de estado); senha correta + arquivado → 403 com mensagem própria; **archive tem prioridade sobre a suspensão**

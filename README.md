@@ -49,21 +49,21 @@ pex-agendamento/
 | appointments | POST /appointments, GET /appointments/available, GET /appointments/by-phone, PATCH /appointments/:id/cancel-public, GET/PATCH/DELETE /appointments/* | parcial | CRUD + rotas públicas |
 | services | POST/GET/PATCH/DELETE /services/* | ❌ | CRUD serviços ⚠️ sem guard |
 | availabilities | CRUD completo + exceções + períodos | ✅ | Disponibilidade com guards |
-| admin | GET /admin/me, GET /admin/professionals, GET /admin/professionals/:id, POST /admin/professionals, PATCH /admin/professionals/:id, PATCH /admin/professionals/:id/status, DELETE /admin/professionals/:id | ✅ | RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`); listagem read-only com paginação/search + criação de Professional + User (nested write, role forçada PROFESSIONAL) + edição administrativa (GET individual + PATCH completo de 5 campos; password/role fora) + mudança de status operacional (suspensão/reativação, idempotente) — criação, edição e status consumidos pelo backoffice frontend (badge + ações com confirmação — ee3a6e2) + arquivamento lógico (soft delete via `deletedAt`, 204 idempotente — b2f6377, frontend pendente) |
+| admin | GET /admin/me, GET /admin/professionals, GET /admin/professionals/:id, POST /admin/professionals, PATCH /admin/professionals/:id, PATCH /admin/professionals/:id/status, DELETE /admin/professionals/:id | ✅ | RBAC — acesso restrito a ADMIN (`@Roles(Role.ADMIN)`); listagem read-only com paginação/search + criação de Professional + User (nested write, role forçada PROFESSIONAL) + edição administrativa (GET individual + PATCH completo de 5 campos; password/role fora) + mudança de status operacional (suspensão/reativação, idempotente) — criação, edição e status consumidos pelo backoffice frontend (badge + ações com confirmação — ee3a6e2) + arquivamento lógico (soft delete via `deletedAt`, 204 idempotente — b2f6377; frontend com ação na edit page — 1e3c913, commit local) |
 
 ### Rotas Frontend
 
 | Rota | Acesso | Descrição |
 |---|---|---|
-| `/login` | público | Login do profissional (exibe aviso para conta suspensa — e8a1a2d) |
+| `/login` | público | Login do profissional (exibe aviso para conta suspensa — e8a1a2d — ou arquivada — 1e3c913) |
 | `/dashboard/*` | auth | Painel do profissional |
 | `/agendamentos` | público | Consulta pública por telefone |
 | `/professional/[slug]` | público | Página pública do profissional (aviso de indisponibilidade para suspensos — e8a1a2d) |
 | `/admin/login` | público | Login do backoffice (somente ADMIN conclui o acesso) |
 | `/admin` | ADMIN | Painel administrativo read-only |
-| `/admin/professionals` | ADMIN | Listagem de profissionais + coluna Status (badge) + ações Suspender/Reativar (ee3a6e2) |
+| `/admin/professionals` | ADMIN | Listagem de profissionais + coluna Status (badge) + ações Suspender/Reativar (ee3a6e2) — sem botão archive (decisão de UX: ação somente na edição) |
 | `/admin/professionals/new` | ADMIN | Criação de profissional (formulário; backend força role PROFESSIONAL) |
-| `/admin/professionals/[id]/edit` | ADMIN | Edição de profissional (formulário de 5 campos; password/role fora) |
+| `/admin/professionals/[id]/edit` | ADMIN | Edição de profissional (formulário de 5 campos; password/role fora) + zona de perigo com ação "Arquivar profissional" via AlertDialog (1e3c913) |
 
 ## Configuração
 
@@ -109,8 +109,9 @@ cd frontend && npm run dev
 - `.env` está em `.gitignore` — **nunca commitar**
 - JWT_SECRET é **obrigatório** — `requireJwtSecret()` em `main.ts` falha se ausente/ vazio
 - Backend: `npm test` roda Jest (260 testes, 21 suítes, Prisma mockado, sem banco real)
-- Frontend: `npm run test` roda Vitest (117 testes, 9 suítes, mocks — sem backend real)
+- Frontend: `npm run test` roda Vitest (159 testes, 9 suítes, mocks — sem backend real)
 - Migration `20261023000000_add_professional_status` (`Professional.status`, default ACTIVE) — **aplicada em produção (2026-10-25)**; backend correspondente publicado e validado por safe smoke
-- Suspensão de Professional no frontend (e8a1a2d — commit local, ainda não pushado): login de conta suspensa mostra aviso inline; sessão já ativa é encerrada (token removido, redirect `/login?reason=suspended`); perfil público suspenso continua visível com aviso; novo agendamento bloqueado pela UI — backend continua a autoridade. Detalhes em `docs/ARQUITETURA.md`
-- Arquivamento de Professional (soft delete — b2f6377 — commit local, ainda não pushado): remoção operacional é via `Professional.deletedAt` (lifecycle; `ProfessionalStatus` permanece ACTIVE/SUSPENDED); `DELETE /admin/professionals/:id` (ADMIN, sem body, 204, idempotente); sem hard delete — User/Services/Availability/Appointments preservados; arquivado some das listagens, slug público vira 404, login/JWT e novo booking bloqueados server-side; migration `20261026000000_add_professional_deleted_at` **ainda NÃO aplicada em produção**; frontend de archive ainda pendente. Detalhes em `docs/ARQUITETURA.md`
+- Suspensão de Professional no frontend (e8a1a2d — já pushado): login de conta suspensa mostra aviso inline; sessão já ativa é encerrada (token removido, redirect `/login?reason=suspended`); perfil público suspenso continua visível com aviso; novo agendamento bloqueado pela UI — backend continua a autoridade. Detalhes em `docs/ARQUITETURA.md`
+- Arquivamento de Professional (soft delete — b2f6377 — já pushado): remoção operacional é via `Professional.deletedAt` (lifecycle; `ProfessionalStatus` permanece ACTIVE/SUSPENDED); `DELETE /admin/professionals/:id` (ADMIN, sem body, 204, idempotente); sem hard delete — User/Services/Availability/Appointments preservados; arquivado some das listagens, slug público vira 404, login/JWT e novo booking bloqueados server-side; migration `20261026000000_add_professional_deleted_at` **aplicada em produção (2026-10-26)**. Detalhes em `docs/ARQUITETURA.md`
+- Frontend de arquivamento de Professional (1e3c913 — commit local, ainda NÃO pushado; Vercel ainda NÃO validado): botão "Arquivar profissional" SOMENTE na edit page (zona de perigo + AlertDialog obrigatório); `DELETE` enviado com zero body; sessão de profissional arquivado encerrada centralmente (token removido, redirect `/login?reason=archived`); direct archived login mostra mensagem inline; perfil público de arquivado usa o not-found atual (sem revelar o motivo). Detalhes em `docs/ARQUITETURA.md`
 - Documentação detalhada: ver `PROJETO.md` e `docs/ARQUITETURA.md`
