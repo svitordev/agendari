@@ -9,6 +9,7 @@ import {
 import {
   AppointmentCancelledBy,
   AppointmentStatus,
+  Prisma,
   ProfessionalStatus,
 } from '@prisma/client';
 
@@ -722,6 +723,30 @@ export class AppointmentsService {
       );
     }
 
+    /*
+     * Regras temporais (hardening da state machine — 2026-10-29):
+     * COMPLETED/NO_SHOW somente após o horário agendado (boundary
+     * `date <= now` conta como já ocorrido); CANCELLED somente antes.
+     * Mesma semântica/mensagem já usada pelo cancel-public.
+     */
+    const alreadyHappened = appointment.date <= new Date();
+
+    if (
+      (status === AppointmentStatus.COMPLETED ||
+        status === AppointmentStatus.NO_SHOW) &&
+      !alreadyHappened
+    ) {
+      throw new BadRequestException('O horário agendado ainda não ocorreu.');
+    }
+
+    if (status === AppointmentStatus.CANCELLED && alreadyHappened) {
+      throw new BadRequestException(
+        'Não é possível cancelar um agendamento que já iniciou.',
+      );
+    }
+
+    let data: Prisma.AppointmentUpdateManyMutationInput;
+
     if (status === AppointmentStatus.CANCELLED) {
       const cancellationReason = reason?.trim();
 
@@ -729,36 +754,63 @@ export class AppointmentsService {
         throw new BadRequestException('Informe o motivo do cancelamento.');
       }
 
-      return this.prisma.appointment.update({
-        where: {
-          id,
-        },
+      data = {
+        status: AppointmentStatus.CANCELLED,
 
-        data: {
-          status: AppointmentStatus.CANCELLED,
+        cancelledBy: AppointmentCancelledBy.PROFESSIONAL,
 
-          cancelledBy: AppointmentCancelledBy.PROFESSIONAL,
+        cancellationReason,
 
-          cancellationReason,
-
-          cancelledAt: new Date(),
-        },
-
-        include: {
-          professional: true,
-          service: true,
-          customer: true,
-        },
-      });
+        cancelledAt: new Date(),
+      };
+    } else {
+      data = { status };
     }
 
-    return this.prisma.appointment.update({
+    /*
+     * Escrita atômica (CAS): o status só muda se ainda for o que
+     * lemos — protege contra corrida entre duas sessões
+     * (duas abas lendo o mesmo estado). Status + metadata de
+     * cancelamento na MESMA write — nunca metadata parcial.
+     *
+     * count=0 → re-check seguro: 404 se não existe/não é do
+     * tenant; 409 se o status mudou em outra sessão.
+     */
+    const { count } = await this.prisma.appointment.updateMany({
       where: {
         id,
+        professionalId,
+        status: appointment.status,
       },
+      data,
+    });
 
-      data: {
-        status,
+    if (count === 0) {
+      const current = await this.prisma.appointment.findFirst({
+        where: {
+          id,
+          professionalId,
+        },
+      });
+
+      if (!current) {
+        throw new NotFoundException('Agendamento não encontrado.');
+      }
+
+      throw new ConflictException(
+        'O agendamento foi alterado por outra operação. Atualize e tente novamente.',
+      );
+    }
+
+    /*
+     * Response authority: leitura final do estado no banco —
+     * nunca objeto stale pré-escrita. Shape idêntico ao anterior.
+     * Se o agendamento sumiu entre a write e a leitura final
+     * (delete concorrente), 404 — nunca 200 com corpo null.
+     */
+    const finalAppointment = await this.prisma.appointment.findUnique({
+      where: {
+        id,
       },
 
       include: {
@@ -767,6 +819,12 @@ export class AppointmentsService {
         customer: true,
       },
     });
+
+    if (!finalAppointment) {
+      throw new NotFoundException('Agendamento não encontrado.');
+    }
+
+    return finalAppointment;
   }
 
   /*
