@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## 2026-10-29 — Backend: hardening da state machine de status pelo Professional (commit 45526f9)
+
+- **Commit**: `45526f9` — `feat(appointments): harden professional status transitions` (commit local — ainda NÃO pushado; deploy ainda NÃO validado)
+- **Escopo**: somente `appointments.service.ts` (`updateStatus`) + suíte nova `appointments-status-transition.spec.ts`; nenhum schema/migration, nenhum frontend, nenhum banco alterado
+- **Contexto**: a state machine já existia — o commit NÃO criou o domínio de appointments do zero; ele endureceu transições, timing, tenant isolation, concorrência, response authority e testes. O frontend atual ainda usa a UI anterior neste momento
+- **State machine (preservada)**: PENDING → CONFIRMED/CANCELLED; CONFIRMED → COMPLETED/CANCELLED/NO_SHOW; CANCELLED/COMPLETED/NO_SHOW terminais; mesmo estado → 400 "Esta alteração de status não é permitida." com zero write
+- **Timing server-side**: COMPLETED/NO_SHOW somente com `date <= now` (antes → 400 "O horário agendado ainda não ocorreu."); CANCELLED somente antes do horário (depois → 400 com a mesma mensagem do cancel-public); boundary `date === now` conta como já ocorrido (teste com relógio fixo)
+- **PENDING passado (decisão)**: permanece PENDING e ainda pode ser CONFIRMADO (sem gate de timing); só depois, como CONFIRMED passado, vai para COMPLETED ou NO_SHOW; PENDING direto → COMPLETED/NO_SHOW continua 400; PENDING passado → CANCELLED bloqueado; auto-expiração continua dívida futura
+- **Concorrência (CAS)**: write via `updateMany` com `where { id, professionalId, status lido do banco }` — impede overwrite de estado stale; count=0 → re-check por id+professionalId: não existe → 404; estado mudou → 409 "O agendamento foi alterado por outra operação. Atualize e tente novamente."; nenhuma segunda write na corrida
+- **Cancellation metadata**: status + cancelledBy=PROFESSIONAL + cancellationReason + cancelledAt na MESMA write (nunca metadata parcial em corrida); reason obrigatório no fluxo Professional (vazio/só espaços → 400)
+- **Tenant**: professionalId vem da sessão/JWT (nunca do body); Professional A em Appointment de B → 404 (sem existence leak); ADMIN sem Professional permanece 400 "Profissional não identificado."
+- **Response authority**: após CAS vencido, leitura final do banco é a autoridade (nunca snapshot stale pré-write); quality review fix — leitura final null (delete físico concorrente) → 404 "Agendamento não encontrado.", nunca 200 com corpo null
+- **Endpoint/DTO preservados**: `PATCH /appointments/:id/status` + `UpdateAppointmentStatusDto` (enum + reason) — nenhum endpoint novo (/confirm, /cancel, /complete, /no-show); `cancel-public` não foi reescrito (regras e metadata CUSTOMER intactas)
+- **Quality review**: 1 problema MÉDIO (final read podia resultar em null silencioso → corrigido para 404) + testes fortalecidos (stale response com snapshot, clock boundary com relógio fixo, zero writes, race COMPLETE/NO_SHOW, count=0 com status igual, reason whitespace, final-read disappearance)
+- **Testes**: suíte nova `appointments-status-transition.spec.ts` **38/38**; backend total **298/298** (22 suítes); `npm run build` PASS; `prisma validate` PASS; frontend permanece 159/159 (9 suítes)
+- **Frontend pendente da próxima etapa**: tabs Próximos/Histórico, filtros, botões por timing/status, AlertDialog, loading por appointment, double submit, response do backend como autoridade
+- **Dívidas futuras (não bloqueiam)**: auto-expiração de PENDING passado, notificações, status history/audit table
+
 ## 2026-10-28 — Fechamento de produção: frontend de arquivamento deployado + safe smoke PASS
 
 - **Publicados**: `1e3c913` (feat) + `a53319c` (docs) pushados para origin/main e deployados no Vercel — validados em produção

@@ -391,6 +391,15 @@ Then: Retorna 400 Bad Request
 
 ## Changelog
 
+### 2026-10-29 - Backend: hardening da state machine de status pelo Professional (commit 45526f9)
+- Tenant boundary server-side mantido: `professionalId` vem SOMENTE da sessão/JWT — nunca controlável pelo body; cross-tenant → 404 (sem existence leak); ADMIN sem Professional permanece 400 "Profissional não identificado."
+- CAS anti lost-update: `updateMany` condicional com `id` + `professionalId` + status anterior lido do banco; count=0 → re-check por id+professionalId; operação stale → 409 "O agendamento foi alterado por outra operação. Atualize e tente novamente."; sem segunda write em corrida
+- Metadata de cancelamento atômica: status + cancelledBy + cancellationReason + cancelledAt na MESMA write — corrida não deixa metadata parcial
+- Response authority: leitura final pós-CAS é a autoridade; quality review corrigiu null silencioso na leitura final (delete físico concorrente) → 404 "Agendamento não encontrado."
+- Same-state e transições inválidas → 400 com zero write; timing server-side: COMPLETED/NO_SHOW somente com `date <= now` (boundary equality = já ocorreu), CANCELLED somente antes do horário
+- `cancel-public` e `UpdateAppointmentStatusDto` preservados — nenhum endpoint novo, nenhum novo enum, nenhuma migration
+- Testes: suíte nova `appointments-status-transition.spec.ts` 38/38; backend 298/298 (22 suítes); build PASS; prisma validate PASS. Commit local — ainda NÃO pushado; deploy ainda NÃO validado
+
 ### 2026-10-28 - Fechamento de produção: frontend de arquivamento (Vercel) — safe smoke PASS
 - `?reason=archived` validado em produção com a mensagem exata; query arbitrária não refletida no DOM (mapeamento fixo); `reason=suspended` sem regressão
 - Ação de archive exige confirmação via AlertDialog obrigatório; Cancelar não dispara nenhum write (zero DELETE, zero PATCH, zero toast); diálogo reabre normalmente após cancelamento

@@ -108,8 +108,9 @@ cd frontend && npm run dev
 - Backend usa `strictNullChecks: false` — **não alterar automaticamente** (migração planejada)
 - `.env` está em `.gitignore` — **nunca commitar**
 - JWT_SECRET é **obrigatório** — `requireJwtSecret()` em `main.ts` falha se ausente/ vazio
-- Backend: `npm test` roda Jest (260 testes, 21 suítes, Prisma mockado, sem banco real)
+- Backend: `npm test` roda Jest (298 testes, 22 suítes, Prisma mockado, sem banco real)
 - Frontend: `npm run test` roda Vitest (159 testes, 9 suítes, mocks — sem backend real)
+- Hardening da state machine de status pelo Professional (45526f9 — commit local, ainda NÃO pushado): matriz preservada, timing server-side (COMPLETED/NO_SHOW só após o horário; CANCELLED só antes), CAS anti lost-update (corrida → 409), tenant isolation via JWT, response final do backend como autoridade; UX frontend deste ciclo (tabs, AlertDialog) ainda pendente. Detalhes em `docs/ARQUITETURA.md`
 - Migration `20261023000000_add_professional_status` (`Professional.status`, default ACTIVE) — **aplicada em produção (2026-10-25)**; backend correspondente publicado e validado por safe smoke
 - Suspensão de Professional no frontend (e8a1a2d — já pushado): login de conta suspensa mostra aviso inline; sessão já ativa é encerrada (token removido, redirect `/login?reason=suspended`); perfil público suspenso continua visível com aviso; novo agendamento bloqueado pela UI — backend continua a autoridade. Detalhes em `docs/ARQUITETURA.md`
 - Arquivamento de Professional (soft delete — b2f6377 — já pushado): remoção operacional é via `Professional.deletedAt` (lifecycle; `ProfessionalStatus` permanece ACTIVE/SUSPENDED); `DELETE /admin/professionals/:id` (ADMIN, sem body, 204, idempotente); sem hard delete — User/Services/Availability/Appointments preservados; arquivado some das listagens, slug público vira 404, login/JWT e novo booking bloqueados server-side; migration `20261026000000_add_professional_deleted_at` **aplicada em produção (2026-10-26)**. Detalhes em `docs/ARQUITETURA.md`
