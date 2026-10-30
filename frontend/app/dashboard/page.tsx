@@ -1,15 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { format, isValid } from "date-fns";
+
+import { toast } from "sonner";
 
 import {
   CalendarClock,
   Check,
   CheckCircle2,
   History,
+  RefreshCw,
   Trash2,
+  UserX,
   X,
 } from "lucide-react";
 
@@ -26,13 +30,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type AppointmentStatus =
   | "PENDING"
@@ -75,6 +81,14 @@ type CleanupResponse = {
   message?: string;
 };
 
+type Tab = "proximos" | "historico";
+
+type StatusFilter = "ALL" | AppointmentStatus;
+
+type ActionDialogType = "COMPLETED" | "NO_SHOW" | "DELETE" | "CLEANUP";
+
+type ActionDialog = { type: ActionDialogType; appointment?: Appointment };
+
 const statusConfig = {
   PENDING: {
     label: "Pendente",
@@ -102,6 +116,72 @@ const statusConfig = {
   },
 };
 
+const FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "ALL", label: "Todos" },
+  { value: "PENDING", label: "Pendente" },
+  { value: "CONFIRMED", label: "Confirmado" },
+  { value: "CANCELLED", label: "Cancelado" },
+  { value: "COMPLETED", label: "Concluído" },
+  { value: "NO_SHOW", label: "Não compareceu" },
+];
+
+const ACTION_DIALOG_CONTENT: Record<
+  ActionDialogType,
+  { title: string; description: string; action: string; destructive: boolean }
+> = {
+  COMPLETED: {
+    title: "Concluir agendamento?",
+    description: "Confirma que o atendimento foi realizado?",
+    action: "Concluir",
+    destructive: false,
+  },
+
+  NO_SHOW: {
+    title: "Marcar como não compareceu?",
+    description: "O cliente será marcado como ausente neste atendimento.",
+    action: "Não compareceu",
+    destructive: false,
+  },
+
+  DELETE: {
+    title: "Excluir agendamento?",
+    description:
+      "O agendamento será removido definitivamente da sua lista. Esta ação não pode ser desfeita.",
+    action: "Excluir",
+    destructive: true,
+  },
+
+  CLEANUP: {
+    title: "Limpar finalizados?",
+    description:
+      "Todos os agendamentos cancelados, concluídos ou marcados como não compareceu serão removidos. Pendentes e confirmados serão preservados.",
+    action: "Limpar finalizados",
+    destructive: true,
+  },
+};
+
+/*
+ * Mensagens que o backend desta feature pode devolver (contrato conhecido).
+ * Qualquer outra mensagem não é refletida na UI — usa fallback seguro.
+ */
+const ALLOWED_ERROR_MESSAGES = new Set([
+  "Esta alteração de status não é permitida.",
+  "O horário agendado ainda não ocorreu.",
+  "Não é possível cancelar um agendamento que já iniciou.",
+  "Informe o motivo do cancelamento.",
+  "Agendamento não encontrado.",
+  "O agendamento foi alterado por outra operação. Atualize e tente novamente.",
+]);
+
+const FALLBACK_UPDATE_ERROR =
+  "Não foi possível atualizar o agendamento. Tente novamente.";
+
+const FALLBACK_DELETE_ERROR =
+  "Não foi possível excluir o agendamento. Tente novamente.";
+
+const FALLBACK_CLEANUP_ERROR =
+  "Não foi possível limpar os agendamentos. Tente novamente.";
+
 function formatWhatsApp(phone: string) {
   const clean = phone.replace(/\D/g, "");
 
@@ -110,10 +190,19 @@ function formatWhatsApp(phone: string) {
   return `https://wa.me/${normalized}`;
 }
 
-function getErrorMessage(error: any, fallback: string) {
-  const message = error.response?.data?.message;
+/*
+ * Timing apenas para DECIDIR QUAIS CONTROLES MOSTRAR — o backend continua
+ * sendo a autoridade final. `date <= now` conta como horário já ocorrido
+ * (mesma semântica do backend).
+ */
+function hasHappened(date: string) {
+  const value = new Date(date);
 
-  return Array.isArray(message) ? message.join("\n") : (message ?? fallback);
+  if (!isValid(value)) {
+    return false;
+  }
+
+  return value.getTime() <= Date.now();
 }
 
 function isFinishedStatus(status: AppointmentStatus) {
@@ -122,10 +211,32 @@ function isFinishedStatus(status: AppointmentStatus) {
   );
 }
 
+function getSafeErrorMessage(error: any, fallback: string) {
+  const status = error?.response?.status;
+
+  const message = error?.response?.data?.message;
+
+  const text = Array.isArray(message) ? message.join(" ") : message;
+
+  if (typeof text === "string" && ALLOWED_ERROR_MESSAGES.has(text)) {
+    return text;
+  }
+
+  if (status === 403) {
+    return "Acesso negado para esta área.";
+  }
+
+  return fallback;
+}
+
 export default function DashboardPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
 
   const [loading, setLoading] = useState(true);
+
+  const [activeTab, setActiveTab] = useState<Tab>("proximos");
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
@@ -134,7 +245,19 @@ export default function DashboardPage() {
   const [cleaning, setCleaning] = useState(false);
 
   /*
-   * Cancelamento com motivo.
+   * Guard síncrono contra double submit no mesmo tick (dois cliques rápidos
+   * antes do state React refletir). Key: id do appointment ou "cleanup".
+   */
+  const pendingActionsRef = useRef<Set<string>>(new Set());
+
+  /*
+   * Diálogo de ação com confirmação (Concluir / Não compareceu / Excluir /
+   * Limpar). Target explícito — nunca compartilhado entre appointments.
+   */
+  const [actionDialog, setActionDialog] = useState<ActionDialog | null>(null);
+
+  /*
+   * Cancelamento com motivo (diálogo React controlado — sem prompt nativo).
    */
   const [cancellationTarget, setCancellationTarget] =
     useState<Appointment | null>(null);
@@ -145,44 +268,64 @@ export default function DashboardPage() {
 
   /*
    * ========================================================
-   * LISTAS
+   * LISTAS (tabs)
    * ========================================================
    */
 
   /*
-   * PENDING + CONFIRMED
-   *
-   * Ordem:
-   * horário/data mais próximo primeiro.
+   * PRÓXIMOS: PENDING/CONFIRMED com horário futuro — mais próximo primeiro.
    */
-  const activeAppointments = useMemo(() => {
+  const upcomingAppointments = useMemo(() => {
     return appointments
       .filter(
         (appointment) =>
-          appointment.status === "PENDING" ||
-          appointment.status === "CONFIRMED",
+          (appointment.status === "PENDING" ||
+            appointment.status === "CONFIRMED") &&
+          !hasHappened(appointment.date),
       )
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [appointments]);
 
   /*
-   * CANCELLED + COMPLETED + NO_SHOW
-   *
-   * Ordem:
-   * mais recente primeiro.
+   * HISTÓRICO: terminais + PENDING/CONFIRMED passados — mais recente
+   * primeiro. PENDING/CONFIRMED passados ainda mostram as ações permitidas
+   * pela matriz (Histórico não significa "somente terminal").
    */
-  const finishedAppointments = useMemo(() => {
+  const historyAppointments = useMemo(() => {
     return appointments
-      .filter((appointment) => isFinishedStatus(appointment.status))
+      .filter(
+        (appointment) =>
+          isFinishedStatus(appointment.status) ||
+          ((appointment.status === "PENDING" ||
+            appointment.status === "CONFIRMED") &&
+            hasHappened(appointment.date)),
+      )
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [appointments]);
 
-  const pendingCount = activeAppointments.filter(
+  const tabAppointments =
+    activeTab === "proximos" ? upcomingAppointments : historyAppointments;
+
+  const visibleAppointments = useMemo(() => {
+    if (statusFilter === "ALL") {
+      return tabAppointments;
+    }
+
+    return tabAppointments.filter(
+      (appointment) => appointment.status === statusFilter,
+    );
+  }, [tabAppointments, statusFilter]);
+
+  const pendingCount = appointments.filter(
     (appointment) => appointment.status === "PENDING",
   ).length;
 
-  const confirmedCount = activeAppointments.filter(
+  const confirmedCount = appointments.filter(
     (appointment) => appointment.status === "CONFIRMED",
+  ).length;
+
+  const finishedCount = appointments.filter((appointment) =>
+    isFinishedStatus(appointment.status),
   ).length;
 
   /*
@@ -229,62 +372,107 @@ export default function DashboardPage() {
 
   /*
    * ========================================================
-   * CONFIRMAR / CONCLUIR / NO SHOW
+   * ERROS (401/suspended/archived pertencem ao interceptor — não duplicar)
    * ========================================================
    */
 
-  const updateStatus = async (
+  const handleActionError = useCallback(
+    (error: any, fallback: string) => {
+      const status = error?.response?.status;
+
+      // 401 é tratado centralmente pelo interceptor (logout/redirect).
+      if (status === 401) {
+        return;
+      }
+
+      toast.error(getSafeErrorMessage(error, fallback));
+
+      // Stale/sumiço: backend é a autoridade — refaz a leitura da lista.
+      if (status === 404 || status === 409) {
+        void fetchAppointments();
+      }
+    },
+    [fetchAppointments],
+  );
+
+  /*
+   * ========================================================
+   * AÇÕES DE STATUS (response do backend é a autoridade — sem optimistic)
+   * ========================================================
+   */
+
+  const runStatusAction = async (
     appointment: Appointment,
     status: AppointmentStatus,
+    successMessage: string,
+    reason?: string,
   ) => {
-    let message = "";
-
-    if (status === "CONFIRMED") {
-      message = "Deseja confirmar este agendamento?";
-    }
-
-    if (status === "COMPLETED") {
-      message = "Deseja marcar este atendimento como concluído?";
-    }
-
-    if (status === "NO_SHOW") {
-      message = "Deseja marcar que o cliente não compareceu?";
-    }
-
-    if (message && !window.confirm(message)) {
+    if (pendingActionsRef.current.has(appointment.id)) {
       return;
     }
+
+    pendingActionsRef.current.add(appointment.id);
 
     setUpdatingId(appointment.id);
 
     try {
+      const body: { status: AppointmentStatus; reason?: string } = { status };
+
+      if (reason) {
+        body.reason = reason;
+      }
+
       const response = await api.patch<Appointment>(
         `/appointments/${appointment.id}/status`,
-        {
-          status,
-        },
+        body,
       );
 
       setAppointments((current) =>
-        current.map((item) =>
-          item.id === appointment.id ? response.data : item,
-        ),
+        current.map((item) => (item.id === appointment.id ? response.data : item)),
       );
+
+      toast.success(successMessage);
+
+      setActionDialog(null);
     } catch (error) {
-      alert(getErrorMessage(error, "Erro ao atualizar agendamento."));
+      handleActionError(error, FALLBACK_UPDATE_ERROR);
     } finally {
+      pendingActionsRef.current.delete(appointment.id);
+
       setUpdatingId(null);
     }
   };
 
+  const confirmAppointment = (appointment: Appointment) => {
+    void runStatusAction(appointment, "CONFIRMED", "Agendamento confirmado.");
+  };
+
+  const completeAppointment = (appointment: Appointment) => {
+    void runStatusAction(appointment, "COMPLETED", "Agendamento concluído.");
+  };
+
+  const markNoShow = (appointment: Appointment) => {
+    void runStatusAction(
+      appointment,
+      "NO_SHOW",
+      "Cliente marcado como não compareceu.",
+    );
+  };
+
   /*
    * ========================================================
-   * RECUSAR / CANCELAR COM MOTIVO
+   * CANCELAR COM MOTIVO (diálogo React — motivo obrigatório, trim, máx 500)
    * ========================================================
    */
 
   const openCancellation = (appointment: Appointment) => {
     setCancellationTarget(appointment);
+
+    setCancellationReason("");
+  };
+
+  const closeCancellation = () => {
+    setCancellationTarget(null);
 
     setCancellationReason("");
   };
@@ -297,10 +485,14 @@ export default function DashboardPage() {
     const reason = cancellationReason.trim();
 
     if (!reason) {
-      alert("Informe o motivo do cancelamento.");
-
       return;
     }
+
+    if (pendingActionsRef.current.has(cancellationTarget.id)) {
+      return;
+    }
+
+    pendingActionsRef.current.add(cancellationTarget.id);
 
     setCancelling(true);
 
@@ -320,32 +512,34 @@ export default function DashboardPage() {
         ),
       );
 
-      setCancellationTarget(null);
+      toast.success("Agendamento cancelado.");
 
-      setCancellationReason("");
+      closeCancellation();
     } catch (error) {
-      alert(getErrorMessage(error, "Erro ao cancelar agendamento."));
+      handleActionError(error, FALLBACK_UPDATE_ERROR);
     } finally {
+      pendingActionsRef.current.delete(cancellationTarget.id);
+
       setCancelling(false);
     }
   };
 
   /*
    * ========================================================
-   * EXCLUIR UM FINALIZADO
+   * EXCLUIR UM FINALIZADO (contrato atual — somente finalizados)
    * ========================================================
    */
 
-  const handleDeleteAppointment = async (appointment: Appointment) => {
+  const runDelete = async (appointment: Appointment) => {
     if (!isFinishedStatus(appointment.status)) {
-      alert("Este agendamento ainda está ativo e não pode ser excluído.");
-
       return;
     }
 
-    if (!window.confirm("Deseja excluir este agendamento definitivamente?")) {
+    if (pendingActionsRef.current.has(appointment.id)) {
       return;
     }
+
+    pendingActionsRef.current.add(appointment.id);
 
     setDeletingId(appointment.id);
 
@@ -355,9 +549,15 @@ export default function DashboardPage() {
       setAppointments((current) =>
         current.filter((item) => item.id !== appointment.id),
       );
+
+      toast.success("Agendamento excluído.");
+
+      setActionDialog(null);
     } catch (error) {
-      alert(getErrorMessage(error, "Erro ao excluir agendamento."));
+      handleActionError(error, FALLBACK_DELETE_ERROR);
     } finally {
+      pendingActionsRef.current.delete(appointment.id);
+
       setDeletingId(null);
     }
   };
@@ -368,24 +568,12 @@ export default function DashboardPage() {
    * ========================================================
    */
 
-  const handleCleanup = async () => {
-    const count = finishedAppointments.length;
-
-    if (count === 0) {
-      alert("Não existem agendamentos finalizados para remover.");
-
+  const runCleanup = async () => {
+    if (pendingActionsRef.current.has("cleanup")) {
       return;
     }
 
-    if (
-      !window.confirm(
-        `Deseja excluir ${count} ${
-          count === 1 ? "agendamento finalizado" : "agendamentos finalizados"
-        }?\n\nPendentes e confirmados serão preservados.`,
-      )
-    ) {
-      return;
-    }
+    pendingActionsRef.current.add("cleanup");
 
     setCleaning(true);
 
@@ -402,31 +590,157 @@ export default function DashboardPage() {
 
       const deletedCount = response.data?.count ?? 0;
 
-      if (deletedCount === 0) {
-        alert("Nenhum agendamento finalizado para remover.");
-
-        return;
-      }
-
-      alert(
-        `${deletedCount} ${
-          deletedCount === 1
-            ? "agendamento foi removido"
-            : "agendamentos foram removidos"
-        } com sucesso.`,
+      toast.success(
+        deletedCount === 0
+          ? "Nenhum agendamento finalizado para remover."
+          : `${deletedCount} ${
+              deletedCount === 1 ? "agendamento removido" : "agendamentos removidos"
+            }.`,
       );
+
+      setActionDialog(null);
     } catch (error) {
-      alert(getErrorMessage(error, "Erro ao limpar os agendamentos."));
+      handleActionError(error, FALLBACK_CLEANUP_ERROR);
     } finally {
+      pendingActionsRef.current.delete("cleanup");
+
       setCleaning(false);
+    }
+  };
+
+  const openActionDialog = (dialog: ActionDialog) => {
+    setActionDialog(dialog);
+  };
+
+  const confirmActionDialog = () => {
+    if (!actionDialog) {
+      return;
+    }
+
+    const { type, appointment } = actionDialog;
+
+    if (type === "CLEANUP") {
+      void runCleanup();
+
+      return;
+    }
+
+    if (!appointment) {
+      return;
+    }
+
+    if (type === "COMPLETED") {
+      completeAppointment(appointment);
+    }
+
+    if (type === "NO_SHOW") {
+      markNoShow(appointment);
+    }
+
+    if (type === "DELETE") {
+      void runDelete(appointment);
     }
   };
 
   /*
    * ========================================================
-   * LOADING
+   * RENDER — ações permitidas pela matriz (frontend decide o que mostrar;
+   * o backend valida e é a autoridade final)
    * ========================================================
    */
+
+  const renderActions = (appointment: Appointment) => {
+    const happened = hasHappened(appointment.date);
+
+    const busy = updatingId === appointment.id;
+
+    const deleting = deletingId === appointment.id;
+
+    const canCancel =
+      !happened &&
+      (appointment.status === "PENDING" || appointment.status === "CONFIRMED");
+
+    const hasActions =
+      appointment.status === "PENDING" ||
+      (appointment.status === "CONFIRMED" && happened) ||
+      canCancel ||
+      isFinishedStatus(appointment.status);
+
+    if (!hasActions) {
+      return null;
+    }
+
+    return (
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        {appointment.status === "PENDING" && (
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={() => confirmAppointment(appointment)}
+            className="bg-green-600 text-white hover:bg-green-700"
+          >
+            <Check className="mr-2 h-4 w-4" />
+
+            {busy ? "Atualizando..." : "Confirmar"}
+          </Button>
+        )}
+
+        {appointment.status === "CONFIRMED" && happened && (
+          <>
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() => openActionDialog({ type: "COMPLETED", appointment })}
+              className="bg-green-600 text-white hover:bg-green-700"
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+
+              {busy ? "Atualizando..." : "Concluir"}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => openActionDialog({ type: "NO_SHOW", appointment })}
+            >
+              <UserX className="mr-2 h-4 w-4" />
+
+              {busy ? "Atualizando..." : "Não compareceu"}
+            </Button>
+          </>
+        )}
+
+        {canCancel && (
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={busy}
+            onClick={() => openCancellation(appointment)}
+          >
+            <X className="mr-2 h-4 w-4" />
+
+            Cancelar
+          </Button>
+        )}
+
+        {isFinishedStatus(appointment.status) && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={deleting}
+            onClick={() => openActionDialog({ type: "DELETE", appointment })}
+            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+
+            {deleting ? "Excluindo..." : "Excluir agendamento"}
+          </Button>
+        )}
+      </div>
+    );
+  };
 
   if (loading) {
     return (
@@ -454,10 +768,23 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          <Badge variant="secondary" className="w-fit">
-            {appointments.length}{" "}
-            {appointments.length === 1 ? "agendamento" : "agendamentos"}
-          </Badge>
+          <div className="flex items-center gap-3">
+            <Badge variant="secondary">
+              {appointments.length}{" "}
+              {appointments.length === 1 ? "agendamento" : "agendamentos"}
+            </Badge>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void fetchAppointments()}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+
+              Atualizar
+            </Button>
+          </div>
         </div>
 
         {/* ===============================================
@@ -487,418 +814,316 @@ export default function DashboardPage() {
             <p className="text-xs font-medium text-gray-500">Finalizados</p>
 
             <p className="mt-1 text-2xl font-bold text-gray-900">
-              {finishedAppointments.length}
+              {finishedCount}
             </p>
           </div>
         </div>
 
         {/* ===============================================
-            DUAS LISTAS
+            TABS — PRÓXIMOS / HISTÓRICO
         =============================================== */}
 
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-          {/* =============================================
-              ATIVOS
-          ============================================= */}
+        <div
+          role="tablist"
+          aria-label="Agendamentos"
+          className="flex flex-wrap items-center gap-2"
+        >
+          <Button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "proximos"}
+            variant={activeTab === "proximos" ? "default" : "outline"}
+            onClick={() => setActiveTab("proximos")}
+          >
+            <CalendarClock className="mr-2 h-4 w-4" />
 
-          <section className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <CalendarClock className="h-5 w-5 text-blue-600" />
+            Próximos ({upcomingAppointments.length})
+          </Button>
 
-                  <h3 className="text-lg font-bold text-gray-900">
-                    Agendamentos ativos
-                  </h3>
-                </div>
+          <Button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "historico"}
+            variant={activeTab === "historico" ? "default" : "outline"}
+            onClick={() => setActiveTab("historico")}
+          >
+            <History className="mr-2 h-4 w-4" />
 
-                <p className="mt-1 text-sm text-gray-500">
-                  Ordenados pelo atendimento mais próximo.
-                </p>
-              </div>
-
-              <Badge variant="secondary">{activeAppointments.length}</Badge>
-            </div>
-
-            {activeAppointments.length === 0 ? (
-              <Card>
-                <CardContent className="py-10 text-center">
-                  <CalendarClock className="mx-auto h-8 w-8 text-gray-300" />
-
-                  <p className="mt-3 font-medium text-gray-700">
-                    Nenhum agendamento ativo
-                  </p>
-
-                  <p className="mt-1 text-sm text-gray-500">
-                    Novas solicitações aparecerão aqui.
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-4">
-                {activeAppointments.map((appointment) => {
-                  const status = statusConfig[appointment.status];
-
-                  const busy = updatingId === appointment.id;
-
-                  const isPending = appointment.status === "PENDING";
-
-                  return (
-                    <Card
-                      key={appointment.id}
-                      className={`overflow-hidden transition-shadow hover:shadow-md ${
-                        isPending ? "border-amber-200" : "border-blue-200"
-                      }`}
-                    >
-                      {/* barra visual */}
-                      <div
-                        className={`h-1 w-full ${
-                          isPending ? "bg-amber-400" : "bg-blue-500"
-                        }`}
-                      />
-
-                      <CardHeader className="pb-3">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <CardTitle className="text-lg">
-                              {appointment.customer?.name ??
-                                "Cliente não informado"}
-                            </CardTitle>
-
-                            {appointment.customer?.phone && (
-                              <a
-                                href={formatWhatsApp(
-                                  appointment.customer.phone,
-                                )}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-1 inline-block text-sm font-medium text-green-600 hover:text-green-700"
-                              >
-                                📱 {appointment.customer.phone}
-                              </a>
-                            )}
-                          </div>
-
-                          <Badge variant={status.variant}>{status.label}</Badge>
-                        </div>
-                      </CardHeader>
-
-                      <CardContent>
-                        <div className="space-y-4">
-                          {appointment.service && (
-                            <div>
-                              <p className="text-sm font-semibold text-gray-800">
-                                {appointment.service.name}
-                              </p>
-
-                              <div className="mt-1 flex flex-wrap gap-3 text-xs text-gray-500">
-                                <span>
-                                  ⏱ {appointment.service.durationMinutes}{" "}
-                                  minutos
-                                </span>
-
-                                <span>
-                                  {Number(
-                                    appointment.service.price,
-                                  ).toLocaleString("pt-BR", {
-                                    style: "currency",
-
-                                    currency: "BRL",
-                                  })}
-                                </span>
-                              </div>
-                            </div>
-                          )}
-
-                          <div
-                            className={`rounded-lg p-3 ${
-                              isPending ? "bg-amber-50" : "bg-blue-50"
-                            }`}
-                          >
-                            <p className="text-sm font-semibold text-gray-700">
-                              🗓️ {getAppointmentTime(appointment)}
-                            </p>
-                          </div>
-
-                          {/* PENDENTE */}
-                          {appointment.status === "PENDING" && (
-                            <div className="flex flex-col gap-2 sm:flex-row">
-                              <Button
-                                type="button"
-                                disabled={busy}
-                                onClick={() =>
-                                  updateStatus(appointment, "CONFIRMED")
-                                }
-                                className="bg-green-600 text-white hover:bg-green-700"
-                              >
-                                <Check className="mr-2 h-4 w-4" />
-
-                                {busy ? "Atualizando..." : "Confirmar"}
-                              </Button>
-
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                disabled={busy}
-                                onClick={() => openCancellation(appointment)}
-                              >
-                                <X className="mr-2 h-4 w-4" />
-                                Recusar
-                              </Button>
-                            </div>
-                          )}
-
-                          {/* CONFIRMADO */}
-                          {appointment.status === "CONFIRMED" && (
-                            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                              <Button
-                                type="button"
-                                disabled={busy}
-                                onClick={() =>
-                                  updateStatus(appointment, "COMPLETED")
-                                }
-                                className="bg-green-600 text-white hover:bg-green-700"
-                              >
-                                <CheckCircle2 className="mr-2 h-4 w-4" />
-                                Concluir
-                              </Button>
-
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={busy}
-                                onClick={() =>
-                                  updateStatus(appointment, "NO_SHOW")
-                                }
-                              >
-                                Não compareceu
-                              </Button>
-
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                disabled={busy}
-                                onClick={() => openCancellation(appointment)}
-                              >
-                                <X className="mr-2 h-4 w-4" />
-                                Cancelar
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          {/* =============================================
-              FINALIZADOS
-          ============================================= */}
-
-          <section className="space-y-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex-col lg:items-stretch xl:flex-row xl:items-center">
-              <div>
-                <div className="flex items-center gap-2">
-                  <History className="h-5 w-5 text-gray-500" />
-
-                  <h3 className="text-lg font-bold text-gray-900">
-                    Finalizados
-                  </h3>
-                </div>
-
-                <p className="mt-1 text-sm text-gray-500">Histórico recente.</p>
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={cleaning || finishedAppointments.length === 0}
-                onClick={handleCleanup}
-                className="text-red-600 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-
-                {cleaning ? "Limpando..." : "Limpar finalizados"}
-              </Button>
-            </div>
-
-            {finishedAppointments.length === 0 ? (
-              <Card>
-                <CardContent className="py-10 text-center">
-                  <History className="mx-auto h-8 w-8 text-gray-300" />
-
-                  <p className="mt-3 text-sm font-medium text-gray-600">
-                    Nenhum histórico
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {finishedAppointments.map((appointment) => {
-                  const status = statusConfig[appointment.status];
-
-                  const deleting = deletingId === appointment.id;
-
-                  return (
-                    <Card
-                      key={appointment.id}
-                      className="border-gray-200 bg-gray-50/50"
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold text-gray-800">
-                              {appointment.customer?.name ?? "Cliente"}
-                            </p>
-
-                            <p className="mt-0.5 truncate text-sm text-gray-500">
-                              {appointment.service?.name ?? "Serviço"}
-                            </p>
-                          </div>
-
-                          <Badge variant={status.variant} className="shrink-0">
-                            {status.label}
-                          </Badge>
-                        </div>
-
-                        <div className="mt-3 rounded-lg bg-white p-3">
-                          <p className="text-xs font-medium text-gray-600">
-                            🗓️ {getAppointmentTime(appointment)}
-                          </p>
-                        </div>
-
-                        {appointment.status === "CANCELLED" &&
-                          appointment.cancellationReason && (
-                            <div className="mt-3 rounded-lg border border-red-100 bg-red-50 p-3">
-                              <p className="text-xs font-semibold text-red-700">
-                                Motivo
-                              </p>
-
-                              <p className="mt-1 text-xs leading-5 text-gray-600">
-                                {appointment.cancellationReason}
-                              </p>
-                            </div>
-                          )}
-
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={deleting}
-                          onClick={() => handleDeleteAppointment(appointment)}
-                          className="mt-3 w-full text-red-600 hover:bg-red-50 hover:text-red-700"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-
-                          {deleting ? "Excluindo..." : "Excluir agendamento"}
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-          </section>
+            Histórico ({historyAppointments.length})
+          </Button>
         </div>
+
+        {/* ===============================================
+            FILTRO DE STATUS (dentro da tab atual)
+        =============================================== */}
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+            <Label htmlFor="statusFilter" className="text-sm text-gray-600">
+              Filtrar por status
+            </Label>
+
+            <select
+              id="statusFilter"
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as StatusFilter)
+              }
+              className="h-9 w-full rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900 sm:w-52"
+            >
+              {FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {activeTab === "historico" && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={cleaning || finishedCount === 0}
+              onClick={() => openActionDialog({ type: "CLEANUP" })}
+              className="w-fit text-red-600 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+
+              {cleaning ? "Limpando..." : "Limpar finalizados"}
+            </Button>
+          )}
+        </div>
+
+        {/* ===============================================
+            LISTA DA TAB ATUAL
+        =============================================== */}
+
+        {tabAppointments.length === 0 ? (
+          <Card>
+            <CardContent className="py-10 text-center">
+              {activeTab === "proximos" ? (
+                <CalendarClock className="mx-auto h-8 w-8 text-gray-300" />
+              ) : (
+                <History className="mx-auto h-8 w-8 text-gray-300" />
+              )}
+
+              <p className="mt-3 font-medium text-gray-700">
+                {activeTab === "proximos"
+                  ? "Nenhum próximo agendamento."
+                  : "Nenhum agendamento no histórico."}
+              </p>
+            </CardContent>
+          </Card>
+        ) : visibleAppointments.length === 0 ? (
+          <Card>
+            <CardContent className="py-10 text-center">
+              <p className="font-medium text-gray-700">
+                Nenhum agendamento para este filtro.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            {visibleAppointments.map((appointment) => {
+              const status = statusConfig[appointment.status];
+
+              return (
+                <Card key={appointment.id} className="overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <CardTitle className="text-lg">
+                          {appointment.customer?.name ?? "Cliente não informado"}
+                        </CardTitle>
+
+                        {appointment.customer?.phone && (
+                          <a
+                            href={formatWhatsApp(appointment.customer.phone)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-1 inline-block text-sm font-medium text-green-600 hover:text-green-700"
+                          >
+                            📱 {appointment.customer.phone}
+                          </a>
+                        )}
+                      </div>
+
+                      <Badge variant={status.variant} className="shrink-0">
+                        {status.label}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent>
+                    <div className="space-y-3">
+                      {appointment.service && (
+                        <div>
+                          <p className="text-sm font-semibold text-gray-800">
+                            {appointment.service.name}
+                          </p>
+
+                          <div className="mt-1 flex flex-wrap gap-3 text-xs text-gray-500">
+                            <span>
+                              ⏱ {appointment.service.durationMinutes} minutos
+                            </span>
+
+                            <span>
+                              {Number(appointment.service.price).toLocaleString(
+                                "pt-BR",
+                                {
+                                  style: "currency",
+
+                                  currency: "BRL",
+                                },
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="rounded-lg bg-gray-50 p-3">
+                        <p className="text-sm font-semibold text-gray-700">
+                          🗓️ {getAppointmentTime(appointment)}
+                        </p>
+                      </div>
+
+                      {appointment.status === "CANCELLED" &&
+                        appointment.cancellationReason && (
+                          <div className="rounded-lg border border-red-100 bg-red-50 p-3">
+                            <p className="text-xs font-semibold text-red-700">
+                              Motivo
+                            </p>
+
+                            <p className="mt-1 text-xs leading-5 text-gray-600">
+                              {appointment.cancellationReason}
+                            </p>
+                          </div>
+                        )}
+
+                      {renderActions(appointment)}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ================================================
-          MOTIVO DO CANCELAMENTO
+          DIALOGO DE AÇÃO (Concluir / Não compareceu / Excluir / Limpar)
       ================================================ */}
 
-      <Sheet
-        open={!!cancellationTarget}
+      <AlertDialog
+        open={!!actionDialog}
         onOpenChange={(open) => {
           if (!open) {
-            setCancellationTarget(null);
-
-            setCancellationReason("");
+            setActionDialog(null);
           }
         }}
       >
-        <SheetContent className="p-6 sm:max-w-[430px]">
-          <SheetHeader>
-            <SheetTitle>
-              {cancellationTarget?.status === "PENDING"
-                ? "Recusar agendamento"
-                : "Cancelar agendamento"}
-            </SheetTitle>
+        {actionDialog && (
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {ACTION_DIALOG_CONTENT[actionDialog.type].title}
+              </AlertDialogTitle>
 
-            <SheetDescription>
-              O motivo será exibido para o cliente ao consultar o agendamento.
-            </SheetDescription>
-          </SheetHeader>
+              <AlertDialogDescription>
+                {ACTION_DIALOG_CONTENT[actionDialog.type].description}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
 
-          {cancellationTarget && (
-            <div className="mt-6 space-y-5">
-              <div className="rounded-lg bg-gray-50 p-4">
-                <p className="font-medium text-gray-900">
-                  {cancellationTarget.customer?.name ?? "Cliente"}
-                </p>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Voltar</AlertDialogCancel>
 
-                <p className="mt-1 text-sm text-gray-600">
-                  {cancellationTarget.service?.name ?? "Serviço"}
-                </p>
+              <AlertDialogAction
+                variant={
+                  ACTION_DIALOG_CONTENT[actionDialog.type].destructive
+                    ? "destructive"
+                    : "default"
+                }
+                onClick={confirmActionDialog}
+              >
+                {ACTION_DIALOG_CONTENT[actionDialog.type].action}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        )}
+      </AlertDialog>
 
-                <p className="mt-1 text-sm text-gray-500">
-                  {getAppointmentTime(cancellationTarget)}
-                </p>
-              </div>
+      {/* ================================================
+          DIALOGO DE CANCELAMENTO COM MOTIVO
+      ================================================ */}
 
-              <div className="space-y-2">
-                <Label htmlFor="cancellationReason">Motivo</Label>
+      <AlertDialog
+        open={!!cancellationTarget}
+        onOpenChange={(open) => {
+          // Durante o request o diálogo permanece aberto; fecha no sucesso
+          // (fechamento explícito) ou no cancelamento manual.
+          if (!open && !cancelling) {
+            closeCancellation();
+          }
+        }}
+      >
+        {cancellationTarget && (
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancelar agendamento?</AlertDialogTitle>
 
-                <Textarea
-                  id="cancellationReason"
-                  rows={5}
-                  maxLength={500}
-                  placeholder="Ex.: Preciso me ausentar neste horário. Por favor, escolha um novo horário disponível."
-                  value={cancellationReason}
-                  onChange={(event) =>
-                    setCancellationReason(event.target.value)
-                  }
-                />
+              <AlertDialogDescription>
+                O motivo será exibido para o cliente ao consultar o
+                agendamento.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
 
-                <p className="text-right text-xs text-gray-400">
-                  {cancellationReason.length}
-                  /500
-                </p>
-              </div>
+            <div className="rounded-lg bg-gray-50 p-4">
+              <p className="font-medium text-gray-900">
+                {cancellationTarget.customer?.name ?? "Cliente"}
+              </p>
 
-              <SheetFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setCancellationTarget(null);
+              <p className="mt-1 text-sm text-gray-600">
+                {cancellationTarget.service?.name ?? "Serviço"}
+              </p>
 
-                    setCancellationReason("");
-                  }}
-                >
-                  Voltar
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={cancelling || !cancellationReason.trim()}
-                  onClick={submitCancellation}
-                >
-                  {cancelling
-                    ? "Salvando..."
-                    : cancellationTarget.status === "PENDING"
-                      ? "Recusar agendamento"
-                      : "Cancelar agendamento"}
-                </Button>
-              </SheetFooter>
+              <p className="mt-1 text-sm text-gray-500">
+                {getAppointmentTime(cancellationTarget)}
+              </p>
             </div>
-          )}
-        </SheetContent>
-      </Sheet>
+
+            <div className="space-y-2">
+              <Label htmlFor="cancellationReason">Motivo</Label>
+
+              <Textarea
+                id="cancellationReason"
+                rows={5}
+                maxLength={500}
+                placeholder="Ex.: Preciso me ausentar neste horário. Por favor, escolha um novo horário disponível."
+                value={cancellationReason}
+                onChange={(event) => setCancellationReason(event.target.value)}
+              />
+
+              <p className="text-right text-xs text-gray-400">
+                {cancellationReason.length}/500
+              </p>
+            </div>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={cancelling}>Voltar</AlertDialogCancel>
+
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={cancelling || !cancellationReason.trim()}
+                onClick={() => void submitCancellation()}
+              >
+                {cancelling ? "Salvando..." : "Cancelar agendamento"}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        )}
+      </AlertDialog>
     </>
   );
 }
