@@ -391,6 +391,14 @@ Then: Retorna 400 Bad Request
 
 ## Changelog
 
+### 2026-10-30 - Frontend: UX de gerenciamento de agendamentos (commit 58787cb)
+- Backend response authority no frontend: após PATCH sucesso o item é substituído pelo `response.data` — zero optimistic status; o backend continua decidindo se a transição é válida (o timing do frontend é apenas visual)
+- Allowlist de mensagens de erro: o frontend NÃO reflete qualquer mensagem arbitrária do backend — somente as mensagens conhecidas do contrato (transição inválida, horário ainda não ocorreu, cancelamento após horário, motivo obrigatório, não encontrado, concorrência); mensagem desconhecida → fallback seguro
+- 404/409 → feedback + refetch `GET /appointments` — stale state não é mantido; 401 permanece no interceptor; 403 comum → feedback seguro sem logout local (suspended/archived continuam no interceptor exato)
+- Double-submit guard síncrono `useRef<Set<string>>` por appointment id (ou cleanup) — 2 cliques → 1 request; guard liberado em todos os status permitindo retry
+- Motivo de cancelamento: obrigatório, trim, maxLength 500, whitespace-only inválido, isolado por appointment (não vaza entre diálogos); zero window.confirm/window.alert/prompt() na área de appointments
+- Commit local — ainda NÃO pushado; Vercel ainda NÃO validado; production smoke deste frontend ainda NÃO executado
+
 ### 2026-10-29 - Backend: hardening da state machine de status pelo Professional (commit 45526f9)
 - Tenant boundary server-side mantido: `professionalId` vem SOMENTE da sessão/JWT — nunca controlável pelo body; cross-tenant → 404 (sem existence leak); ADMIN sem Professional permanece 400 "Profissional não identificado."
 - CAS anti lost-update: `updateMany` condicional com `id` + `professionalId` + status anterior lido do banco; count=0 → re-check por id+professionalId; operação stale → 409 "O agendamento foi alterado por outra operação. Atualize e tente novamente."; sem segunda write em corrida

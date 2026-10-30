@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## 2026-10-30 — Frontend: UX de gerenciamento de agendamentos do Professional (commit 58787cb)
+
+- **Commit**: `58787cb` — `feat(appointments): improve professional management UX` (commit local — ainda NÃO pushado; Vercel ainda NÃO validado; production smoke deste frontend ainda NÃO executado)
+- **Escopo**: exatamente 2 arquivos — `frontend/app/dashboard/page.tsx` (reescrito) + `frontend/tests/dashboard-appointments.test.tsx` (novo); nenhum backend/Prisma/migration alterado; nenhuma dependency npm nova
+- **Dashboard reutilizado**: nenhuma página nova criada — o dashboard do Professional existente continua a fonte operacional; CustomerAppointments, by-phone, cancel-public e ADMIN intactos
+- **Sheet → AlertDialog**: o Sheet anterior era usado SOMENTE no fluxo de cancelamento e foi substituído por AlertDialog; nenhuma informação ou funcionalidade adicional foi perdida
+- **Tabs**: Próximos (tab inicial — PENDING/CONFIRMED futuros, mais próximo primeiro) / Histórico (CANCELLED/COMPLETED/NO_SHOW + PENDING/CONFIRMED passados, mais recente primeiro); PENDING passado ainda oferece Confirmar; CONFIRMED passado oferece Concluir/Não compareceu
+- **Filtro de status** (Todos/Pendente/Confirmado/Cancelado/Concluído/Não compareceu) atua somente dentro da tab atual; enum técnico nunca exibido; labels PT-BR; empty states dedicados por tab + filtro sem resultado
+- **Matriz de botões**: PENDING futuro → Confirmar + Cancelar; PENDING passado → Confirmar; CONFIRMED futuro → Cancelar; CONFIRMED passado → Concluir + Não compareceu; terminais → nenhuma ação de status; Excluir conforme regra pré-existente de finalizados
+- **Timing visual**: frontend usa `date <= now` (mesma semântica do backend) apenas para decidir quais controles exibir — o backend permanece a autoridade de domínio/segurança
+- **Zero native dialogs**: window.confirm/window.alert/prompt() removidos da área de appointments; Confirmar é ação direta; Concluir/Não compareceu/Excluir/Limpar usam AlertDialog; cancelamento com motivo usa AlertDialog controlado (motivo obrigatório, trim, maxLength 500, whitespace-only inválido, isolado por appointment, limpo em sucesso/Voltar, preservado em erro para retry)
+- **Loading/double submit**: loading granular por appointment (A não bloqueia B); cleanup global com loading próprio; guard síncrono `useRef<Set<string>>` por id (ou cleanup) — 2 cliques rápidos → 1 request; guard liberado em 200/400/403/404/409/5xx/rede permitindo retry
+- **Response authority**: após PATCH sucesso o item é substituído pelo `response.data` do backend — zero optimistic status; tabs/filtro/ordenação/empty state recalculados a partir do estado atualizado sem refetch obrigatório
+- **Erros**: 400 somente mensagens allowlisted do contrato (transição, timing, cancelamento pós-horário, motivo obrigatório, não encontrado, concorrência) — mensagem desconhecida → fallback seguro; 404/409 → feedback + refetch (stale state removido); 401 → interceptor (não duplicado); 403 comum → feedback seguro sem logout local; 5xx/rede → item permanece + retry; refresh manual (botão Atualizar) faz somente GET
+- **Stats**: cards derivados da coleção completa (não dependem de tab/filtro)
+- **Mobile**: tabs/filtros/botões/dialogs responsivos; cards preservados; sem tabela horizontal nova
+- **Quality review**: zero defeitos de production code; 1 LOW no próprio teste + 6 gaps LOW de cobertura reforçados (anti-optimistic com response divergente, isolamento do motivo, retry pós-erro, PENDING passado pós-confirmar, filtro/empty state pós-transição, DELETE erro não remove)
+- **Testes**: dashboard appointments **62/62**; api-interceptor **25/25**; juntos **87/87** (duas ordens); frontend total **221/221** (10 suítes); `npm run build` PASS; backend permanece **298/298** (22 suítes)
+- **Pendências**: push do 58787cb + docs; deploy Vercel; production safe smoke deste frontend. Dívidas futuras (não confundir): auto-expiração de PENDING, notificações, audit history
+
 ## 2026-10-29 — Backend: hardening da state machine de status pelo Professional (commit 45526f9)
 
 - **Commit**: `45526f9` — `feat(appointments): harden professional status transitions` (commit local — ainda NÃO pushado; deploy ainda NÃO validado)

@@ -185,7 +185,7 @@ P2025 → re-check: arquivado → 204 · inexistente → 404
 - **Testes**: `admin-archive-professional.spec.ts` (22) + `auth-archived.spec.ts` (12) + `appointments-archived.spec.ts` (15); backend total **260/260** (21 suítes); `npm run build` PASS; `prisma validate`/`generate` PASS
 - **Frontend**: implementado, publicado e validado em produção (1e3c913 — pushado, deployado no Vercel, safe smoke PASS em 2026-10-28) — ver seção "UX frontend de Professional arquivado"
 
-### Status de Appointment — hardening da state machine pelo Professional (backend desde 2026-10-29, commit 45526f9 — commit local, ainda NÃO pushado)
+### Status de Appointment — hardening da state machine pelo Professional (backend desde 2026-10-29, commit 45526f9 — pushado, deployado e validado por safe smoke em produção em 2026-10-30)
 ```
 PATCH /appointments/:id/status (JwtAuthGuard)
   ↓
@@ -214,7 +214,27 @@ CAS: updateMany where { id, professionalId, status lido }
 - **Final-read 404 (quality review)**: a leitura final pós-CAS podia resultar em null se o Appointment fosse removido fisicamente por outro fluxo entre a write e a leitura (possível via `remove`/`cleanup` em finalizados); corrigido: null → 404 "Agendamento não encontrado.", nunca 200 com corpo null
 - **Contrato preservado**: `PATCH /appointments/:id/status` e `UpdateAppointmentStatusDto` (enum + reason opcional) inalterados; nenhum endpoint novo (/confirm, /cancel, /complete, /no-show); response shape idêntico ao anterior; `cancel-public` não foi reescrito (regras e metadata CUSTOMER intactas)
 - **Erros**: transição inválida/timing → 400; não encontrado/cross-tenant → 404; corrida stale → 409 — sem misturar
-- **Testes**: `appointments-status-transition.spec.ts` **38/38** (auth 401 real via cadeia Controller/Guard, tenant, matriz completa, timing, boundary com relógio fixo, mesma-escrita, CAS/re-check, 404/409, no-partial, response-final, final-read disappearance, reason whitespace); backend total **298/298** (22 suítes); `npm run build` PASS; `prisma validate` PASS; frontend permanece 159/159 (9 suítes)
+- **Testes**: `appointments-status-transition.spec.ts` **38/38** (auth 401 real via cadeia Controller/Guard, tenant, matriz completa, timing, boundary com relógio fixo, mesma-escrita, CAS/re-check, 404/409, no-partial, response-final, final-read disappearance, reason whitespace); backend total **298/298** (22 suítes); `npm run build` PASS; `prisma validate` PASS; frontend à época 159/159 (9 suítes) — hoje 221/221 (10 suítes), ver seção de UX frontend
+
+### UX frontend do gerenciamento de agendamentos do Professional (58787cb — commit local, ainda NÃO pushado)
+- **Escopo**: exatamente 2 arquivos — `frontend/app/dashboard/page.tsx` (reescrito; dashboard existente reutilizado, nenhuma página nova) + suíte nova `tests/dashboard-appointments.test.tsx` (62 testes); backend/Prisma/migration/package files intocados; nenhuma dependency npm nova; CustomerAppointments/by-phone/cancel-public/ADMIN intactos
+- **Sheet → AlertDialog**: o Sheet anterior era usado SOMENTE no fluxo de cancelamento; substituído por AlertDialog controlado; nenhuma informação ou funcionalidade adicional perdida
+- **Tabs**: **Próximos** (tab inicial) = PENDING/CONFIRMED futuros, do mais próximo primeiro; **Histórico** = CANCELLED/COMPLETED/NO_SHOW + PENDING/CONFIRMED passados, do mais recente para o mais antigo; sem auto-switch — a tab permanece previsível com empty state próprio
+- **PENDING/CONFIRMED passados**: PENDING passado fica no Histórico mas ainda oferece Confirmar; após confirmar, permanece no Histórico como CONFIRMED passado e passa a oferecer Concluir/Não compareceu; CONFIRMED passado oferece Concluir + Não compareceu; terminais não oferecem ação de status (só Excluir, regra pré-existente de finalizados)
+- **Timing visual**: `date <= now` (mesma semântica do backend — boundary equality = já ocorreu) decide apenas QUAIS controles exibir; o backend permanece a autoridade de domínio/segurança e valida cada transição
+- **Filtro de status**: Todos/Pendente/Confirmado/Cancelado/Concluído/Não compareceu — atua somente dentro da tab atual; enum técnico nunca exibido ao usuário (labels PT-BR); empty states: "Nenhum próximo agendamento." / "Nenhum agendamento no histórico." / "Nenhum agendamento para este filtro."
+- **Ações**: Confirmar (PENDING→CONFIRMED) é direta — `PATCH /appointments/:id/status` com body exato `{ status: "CONFIRMED" }` sem reason; Concluir/Não compareceu/Excluir/Limpar usam AlertDialog (Excluir/Limpar destructive); cancelamento usa AlertDialog com motivo obrigatório (trim, maxLength 500, whitespace-only inválido, confirmação desabilitada sem motivo válido) — `PATCH` com `status: "CANCELLED"` + reason trimado
+- **Isolamento do motivo**: o motivo não vaza entre appointments — fechar A e abrir B inicia vazio; sucesso limpa; Voltar limpa; erro preserva o contexto para retry
+- **Zero native dialogs**: window.confirm/window.alert/prompt() não são usados na área de appointments
+- **Loading/double submit**: loading granular por appointment id (ação em A não bloqueia B); cleanup é ação global com loading próprio; guard síncrono `useRef<Set<string>>` (chave = id ou cleanup) — dois cliques rápidos produzem 1 request; guard liberado em 200/400/403/404/409/5xx/rede — retry sempre possível
+- **Response authority**: após PATCH sucesso o item é substituído pelo `response.data` do backend — zero optimistic status; se o backend responder diferente da intenção, a UI respeita a response; tabs/filtro/ordenação/empty state são derivados do estado atualizado e recalculados após a response sem refetch obrigatório
+- **Reclassificação pós-response**: PENDING futuro → CONFIRMED permanece Próximos; CONFIRMED futuro → CANCELLED sai de Próximos e entra no Histórico; PENDING passado → CONFIRMED permanece no Histórico com Concluir/Não compareceu; CONFIRMED passado → COMPLETED/NO_SHOW permanece no Histórico sem ações de status
+- **Erros**: 400 reflete SOMENTE mensagens allowlisted do contrato (transição inválida, horário ainda não ocorreu, cancelamento após horário, motivo obrigatório, não encontrado, concorrência) — mensagem desconhecida → fallback seguro; 404 → feedback seguro + refetch `GET /appointments` (remove stale state); 409 → mensagem de concorrência + refetch (sem fingir sucesso); 401 → interceptor existente (não duplicado); 403 comum → feedback seguro sem logout local (suspended/archived continuam no interceptor); 5xx/rede → item e status permanecem, loading e guard liberam, retry possível, zero feedback de sucesso; botão Atualizar faz somente GET (zero write)
+- **Stats**: cards de resumo derivados da coleção completa de appointments — não dependem da tab/filtro ativa
+- **Mobile**: cards preservados; tabs com wrap; filtro responsivo; ações com wrap; AlertDialogs responsivos; sem tabela horizontal nova
+- **Quality review**: zero defeitos de production code; 1 LOW no próprio teste + 6 gaps LOW de cobertura reforçados (anti-optimistic com response divergente, isolamento do motivo, retry pós-erro, PENDING passado pós-confirmar, filtro/empty state pós-transição, DELETE erro não remove); production code não precisou de correção no review
+- **Testes**: `dashboard-appointments` **62/62**; api-interceptor **25/25**; ambos juntos **87/87** nas duas ordens (independência verificada); frontend total **221/221** (10 suítes); `npm run build` PASS; backend permanece **298/298** (22 suítes)
+- **Estado**: commit local `58787cb` — ainda NÃO pushado; Vercel ainda NÃO validado; production smoke deste frontend ainda NÃO executado
 
 ### Ownership por Módulo
 | Módulo | Ownership | Observação |
@@ -235,7 +255,7 @@ CAS: updateMany where { id, professionalId, status lido }
 | `/login` | ❌ | Login (exibe aviso quando `?reason=suspended` — e8a1a2d — ou `?reason=archived` — 1e3c913) |
 | `/agendamentos` | ❌ | Consulta pública de agendamentos por telefone |
 | `/professional/[slug]` | ❌ | Página pública do profissional (aviso de indisponibilidade para suspensos — e8a1a2d) |
-| `/dashboard` | ✅ | Agendamentos do profissional (ativos/finalizados) |
+| `/dashboard` | ✅ | Agendamentos do profissional — tabs Próximos/Histórico + filtro de status + AlertDialogs (58787cb) |
 | `/dashboard/services` | ✅ | CRUD de serviços ⚠️ busca global não filtrada |
 | `/dashboard/availability` | ✅ | Gestão de disponibilidade + exceções |
 | `/dashboard/profile` | ✅ | Perfil + theme colors |
@@ -268,7 +288,7 @@ CAS: updateMany where { id, professionalId, status lido }
 - user=null: aviso "Este profissional não possui usuário associado.", Salvar desabilitado, nenhum PATCH possível, nenhum valor fictício, nenhum User criado automaticamente (backend manteria 409 se tentado).
 - PATCH: payload objeto explícito com exatamente os 5 campos (sem spread); duplo submit bloqueado (`isSubmitting`, botão "Salvando..." — teste com Promise pendente prova 1 única chamada). Erros: GET 404 → estado dedicado; PATCH 404 → permanece na tela com formulário preenchido; 409 email/slug mapeados por mensagem exata para o campo; 409 user ausente e 409 residual → erro geral; 409 desconhecido → fallback seguro; 403 sem logout; 5xx/rede → mensagem genérica + retry; 401 → interceptor existente. Redirect + toast apenas no 200. Tipos adicionados em `types/index.ts`: `AdminProfessionalDetails`, `AdminUpdateProfessionalPayload`, `AdminUpdateProfessionalResponse`.
 - Dívida não bloqueante: `AdminRoute` e o shell do layout usam instâncias independentes de `useAuth()` → dois `GET /auth/profile` por navegação na área protegida (sem impacto de segurança; não corrigido nesta entrega)
-- Testes frontend: Vitest + Testing Library (jsdom), 9 suítes, **159/159** passando, sem backend real (mocks) — suíte da listagem 33/33 cobre badge, ações por status, AlertDialog, payload exato, pending por id (A/B independentes), duplo clique, autoridade da response, non-optimistic, item stale não reinserido, 404 preservando busca/página, erros, regressão e ausência de botão archive; edição+arquivamento: admin-edit-professional 44/44 (inclui 17 de archive); UX de account-state: api-interceptor 25/25, login-suspension 17/17, public-profile-suspension 13/13
+- Testes frontend: Vitest + Testing Library (jsdom), 10 suítes, **221/221** passando, sem backend real (mocks) — suíte do dashboard 62/62 (ver seção "UX frontend do gerenciamento de agendamentos"); suíte da listagem 33/33 cobre badge, ações por status, AlertDialog, payload exato, pending por id (A/B independentes), duplo clique, autoridade da response, non-optimistic, item stale não reinserido, 404 preservando busca/página, erros, regressão e ausência de botão archive; edição+arquivamento: admin-edit-professional 44/44 (inclui 17 de archive); UX de account-state: api-interceptor 25/25, login-suspension 17/17, public-profile-suspension 13/13
 
 ### UX frontend de Professional suspenso (e8a1a2d — já pushado)
 - **Constantes** (`frontend/lib/suspension.ts`): `SUSPENDED_ACCOUNT_MESSAGE` (espelho exato da string do backend), `SUSPENDED_REASON`, `SUSPENDED_LOGIN_PATH` — fonte única compartilhada pelo interceptor e pela login page (evita divergência entre as pontas)
