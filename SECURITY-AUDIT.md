@@ -397,7 +397,7 @@ Then: Retorna 400 Bad Request
 - 404/409 → feedback + refetch `GET /appointments` — stale state não é mantido; 401 permanece no interceptor; 403 comum → feedback seguro sem logout local (suspended/archived continuam no interceptor exato)
 - Double-submit guard síncrono `useRef<Set<string>>` por appointment id (ou cleanup) — 2 cliques → 1 request; guard liberado em todos os status permitindo retry
 - Motivo de cancelamento: obrigatório, trim, maxLength 500, whitespace-only inválido, isolado por appointment (não vaza entre diálogos); zero window.confirm/window.alert/prompt() na área de appointments
-- Commit local — ainda NÃO pushado; Vercel ainda NÃO validado; production smoke deste frontend ainda NÃO executado
+- Pushado, deployado no Vercel e validado por safe smoke em produção (2026-10-30): zero writes (PATCH=0, DELETE appointment=0, DELETE cleanup=0, POST=0, cancel-public=0); AlertDialogs de Excluir e "Limpar finalizados" abertos e CANCELADOS; no PII/credential exposure; logout final com localStorage limpo; console sem erros da aplicação
 
 ### 2026-10-29 - Backend: hardening da state machine de status pelo Professional (commit 45526f9)
 - Tenant boundary server-side mantido: `professionalId` vem SOMENTE da sessão/JWT — nunca controlável pelo body; cross-tenant → 404 (sem existence leak); ADMIN sem Professional permanece 400 "Profissional não identificado."

@@ -216,7 +216,7 @@ CAS: updateMany where { id, professionalId, status lido }
 - **Erros**: transição inválida/timing → 400; não encontrado/cross-tenant → 404; corrida stale → 409 — sem misturar
 - **Testes**: `appointments-status-transition.spec.ts` **38/38** (auth 401 real via cadeia Controller/Guard, tenant, matriz completa, timing, boundary com relógio fixo, mesma-escrita, CAS/re-check, 404/409, no-partial, response-final, final-read disappearance, reason whitespace); backend total **298/298** (22 suítes); `npm run build` PASS; `prisma validate` PASS; frontend à época 159/159 (9 suítes) — hoje 221/221 (10 suítes), ver seção de UX frontend
 
-### UX frontend do gerenciamento de agendamentos do Professional (58787cb — commit local, ainda NÃO pushado)
+### UX frontend do gerenciamento de agendamentos do Professional (58787cb — pushado, deployado no Vercel e validado em produção em 2026-10-30)
 - **Escopo**: exatamente 2 arquivos — `frontend/app/dashboard/page.tsx` (reescrito; dashboard existente reutilizado, nenhuma página nova) + suíte nova `tests/dashboard-appointments.test.tsx` (62 testes); backend/Prisma/migration/package files intocados; nenhuma dependency npm nova; CustomerAppointments/by-phone/cancel-public/ADMIN intactos
 - **Sheet → AlertDialog**: o Sheet anterior era usado SOMENTE no fluxo de cancelamento; substituído por AlertDialog controlado; nenhuma informação ou funcionalidade adicional perdida
 - **Tabs**: **Próximos** (tab inicial) = PENDING/CONFIRMED futuros, do mais próximo primeiro; **Histórico** = CANCELLED/COMPLETED/NO_SHOW + PENDING/CONFIRMED passados, do mais recente para o mais antigo; sem auto-switch — a tab permanece previsível com empty state próprio
@@ -234,7 +234,7 @@ CAS: updateMany where { id, professionalId, status lido }
 - **Mobile**: cards preservados; tabs com wrap; filtro responsivo; ações com wrap; AlertDialogs responsivos; sem tabela horizontal nova
 - **Quality review**: zero defeitos de production code; 1 LOW no próprio teste + 6 gaps LOW de cobertura reforçados (anti-optimistic com response divergente, isolamento do motivo, retry pós-erro, PENDING passado pós-confirmar, filtro/empty state pós-transição, DELETE erro não remove); production code não precisou de correção no review
 - **Testes**: `dashboard-appointments` **62/62**; api-interceptor **25/25**; ambos juntos **87/87** nas duas ordens (independência verificada); frontend total **221/221** (10 suítes); `npm run build` PASS; backend permanece **298/298** (22 suítes)
-- **Estado**: commit local `58787cb` — ainda NÃO pushado; Vercel ainda NÃO validado; production smoke deste frontend ainda NÃO executado
+- **Estado**: `58787cb` pushado e deployado no Vercel; production safe smoke PASS em 2026-10-30 — login/dashboard do Professional PASS; tabs Próximos/Histórico, filtros, labels PT-BR, empty states, stats globais e Atualizar GET-only verificados; mobile 390x844 PASS; AlertDialogs de Excluir e "Limpar finalizados" abertos e CANCELADOS; zero writes no smoke (PATCH=0, DELETE=0, POST=0, cancel-public=0); estado final = 2 appointments inalterados (1 CANCELLED, 1 COMPLETED); logout final com localStorage limpo; console sem erros da aplicação. Cenários de write (ações em PENDING/CONFIRMED, cancel/complete/no-show reais, 400/404/409) permanecem cobertos por testes automatizados — não executados em produção
 
 ### Ownership por Módulo
 | Módulo | Ownership | Observação |

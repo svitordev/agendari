@@ -1,8 +1,20 @@
 # CHANGELOG
 
+## 2026-10-30 — Fechamento de produção: Professional Appointment Management (cycle closed)
+
+- **Publicados**: `58787cb` (frontend UX) + `01e0979` (docs) pushados para origin/main; frontend deployado no Vercel e confirmado com a UI nova (tabs, filtro de status, botão Atualizar, AlertDialogs — zero native confirm)
+- **Safe smoke em produção (PASS, zero writes)**: login/dashboard do Professional PASS; tabs Próximos/Histórico visíveis; Próximos default com empty state correto; Histórico com os 2 appointments reais; labels PT-BR ("Cancelado"/"Concluído"), enum cru não exibido; terminais sem ações de status (só Excluir); filtros Todos/Cancelado/Concluído PASS; filtros sem resultado com empty state dedicado; filtro respeita a tab; stats globais preservadas; Atualizar = GET-only; mobile 390x844 PASS (sem overflow horizontal, tabs/filtro utilizáveis, cards visíveis, AlertDialog cabe na viewport); logout final PASS
+- **AlertDialogs em produção**: Excluir aberto e CANCELADO (DELETE real = 0, appointment permaneceu); "Limpar finalizados" aberto e CANCELADO (cleanup DELETE real = 0, appointments permaneceram) — exclusão e cleanup reais não foram testados em produção
+- **Zero writes**: PATCH status = 0; DELETE appointment = 0; DELETE cleanup = 0; POST appointment = 0; cancel-public write = 0 — nenhuma escrita real executada
+- **Estado final dos appointments**: count = 2 (CANCELLED = 1, COMPLETED = 1) — snapshot final idêntico ao baseline; nenhum status/data/id alterado
+- **Não executados em produção** (cobertos pelos testes automatizados, sem fixture criada só para smoke): ações em PENDING/CONFIRMED, cancel/complete/no-show reais, 400/404/409 provocados — NOT_EXECUTED, não são falha
+- **Console**: nenhum erro/warning da aplicação durante o smoke; apenas warning de infraestrutura do Next (preload de CSS não utilizado, pós-logout), não relacionado ao dashboard
+- **Dívidas futuras (não bloqueiam o ciclo)**: auto-expiração de PENDING passado, notificações, status history/audit trail
+- **Professional Appointment Management: CONCLUÍDO EM PRODUÇÃO** — backend (state machine, timing, tenant, CAS, race handling, response authority) + frontend (tabs, filtros, action matrix, AlertDialogs, loading, double-submit, backend response authority, mobile, production smoke)
+
 ## 2026-10-30 — Frontend: UX de gerenciamento de agendamentos do Professional (commit 58787cb)
 
-- **Commit**: `58787cb` — `feat(appointments): improve professional management UX` (commit local — ainda NÃO pushado; Vercel ainda NÃO validado; production smoke deste frontend ainda NÃO executado)
+- **Commit**: `58787cb` — `feat(appointments): improve professional management UX` (pushado, deployado no Vercel e validado por safe smoke em produção em 2026-10-30 — ver entrada de fechamento acima)
 - **Escopo**: exatamente 2 arquivos — `frontend/app/dashboard/page.tsx` (reescrito) + `frontend/tests/dashboard-appointments.test.tsx` (novo); nenhum backend/Prisma/migration alterado; nenhuma dependency npm nova
 - **Dashboard reutilizado**: nenhuma página nova criada — o dashboard do Professional existente continua a fonte operacional; CustomerAppointments, by-phone, cancel-public e ADMIN intactos
 - **Sheet → AlertDialog**: o Sheet anterior era usado SOMENTE no fluxo de cancelamento e foi substituído por AlertDialog; nenhuma informação ou funcionalidade adicional foi perdida
@@ -18,7 +30,7 @@
 - **Mobile**: tabs/filtros/botões/dialogs responsivos; cards preservados; sem tabela horizontal nova
 - **Quality review**: zero defeitos de production code; 1 LOW no próprio teste + 6 gaps LOW de cobertura reforçados (anti-optimistic com response divergente, isolamento do motivo, retry pós-erro, PENDING passado pós-confirmar, filtro/empty state pós-transição, DELETE erro não remove)
 - **Testes**: dashboard appointments **62/62**; api-interceptor **25/25**; juntos **87/87** (duas ordens); frontend total **221/221** (10 suítes); `npm run build` PASS; backend permanece **298/298** (22 suítes)
-- **Pendências**: push do 58787cb + docs; deploy Vercel; production safe smoke deste frontend. Dívidas futuras (não confundir): auto-expiração de PENDING, notificações, audit history
+- **Status posterior**: pushado (`58787cb` + docs `01e0979`), deployado no Vercel e validado por production safe smoke em 2026-10-30 — ver entrada de fechamento acima. Dívidas futuras (não confundir): auto-expiração de PENDING, notificações, audit history
 
 ## 2026-10-29 — Backend: hardening da state machine de status pelo Professional (commit 45526f9)
 
