@@ -288,7 +288,7 @@ CAS: updateMany where { id, professionalId, status lido }
 - user=null: aviso "Este profissional não possui usuário associado.", Salvar desabilitado, nenhum PATCH possível, nenhum valor fictício, nenhum User criado automaticamente (backend manteria 409 se tentado).
 - PATCH: payload objeto explícito com exatamente os 5 campos (sem spread); duplo submit bloqueado (`isSubmitting`, botão "Salvando..." — teste com Promise pendente prova 1 única chamada). Erros: GET 404 → estado dedicado; PATCH 404 → permanece na tela com formulário preenchido; 409 email/slug mapeados por mensagem exata para o campo; 409 user ausente e 409 residual → erro geral; 409 desconhecido → fallback seguro; 403 sem logout; 5xx/rede → mensagem genérica + retry; 401 → interceptor existente. Redirect + toast apenas no 200. Tipos adicionados em `types/index.ts`: `AdminProfessionalDetails`, `AdminUpdateProfessionalPayload`, `AdminUpdateProfessionalResponse`.
 - Dívida não bloqueante: `AdminRoute` e o shell do layout usam instâncias independentes de `useAuth()` → dois `GET /auth/profile` por navegação na área protegida (sem impacto de segurança; não corrigido nesta entrega)
-- Testes frontend: Vitest + Testing Library (jsdom), 10 suítes, **221/221** passando, sem backend real (mocks) — suíte do dashboard 62/62 (ver seção "UX frontend do gerenciamento de agendamentos"); suíte da listagem 33/33 cobre badge, ações por status, AlertDialog, payload exato, pending por id (A/B independentes), duplo clique, autoridade da response, non-optimistic, item stale não reinserido, 404 preservando busca/página, erros, regressão e ausência de botão archive; edição+arquivamento: admin-edit-professional 44/44 (inclui 17 de archive); UX de account-state: api-interceptor 25/25, login-suspension 17/17, public-profile-suspension 13/13
+- Testes frontend: Vitest + Testing Library (jsdom), 11 suítes, **260/260** passando, sem backend real (mocks) — suíte do dashboard 62/62 (ver seção "UX frontend do gerenciamento de agendamentos"); suíte da listagem 33/33 cobre badge, ações por status, AlertDialog, payload exato, pending por id (A/B independentes), duplo clique, autoridade da response, non-optimistic, item stale não reinserido, 404 preservando busca/página, erros, regressão e ausência de botão archive; edição+arquivamento: admin-edit-professional 44/44 (inclui 17 de archive); UX de account-state: api-interceptor 25/25, login-suspension 17/17, public-profile-suspension 13/13; experiência do cliente: customer-appointments 39/39 (ver seção "UX frontend da experiência de agendamentos do cliente")
 
 ### UX frontend de Professional suspenso (e8a1a2d — já pushado)
 - **Constantes** (`frontend/lib/suspension.ts`): `SUSPENDED_ACCOUNT_MESSAGE` (espelho exato da string do backend), `SUSPENDED_REASON`, `SUSPENDED_LOGIN_PATH` — fonte única compartilhada pelo interceptor e pela login page (evita divergência entre as pontas)
@@ -327,6 +327,43 @@ CAS: updateMany where { id, professionalId, status lido }
 - **Zero writes no smoke** (deliberadamente não destrutivo): archive DELETE real = 0; status writes = 0; Appointment creates = 0; Professional creates = 0
 - **Estado final do banco (produção)**: TOTAL Professionals = 1; ARCHIVED_COUNT = 0; Professional real (jessicasantana) ACTIVE, `deletedAt = null` — nenhum Professional real foi arquivado para o smoke
 - **Cenários não executados em produção** (permanecem cobertos pelos testes automatizados — não arquivar o único Professional real apenas para smoke): `REAL_ARCHIVE_PRODUCTION_TEST=NOT_EXECUTED`; `OLD_SESSION_ARCHIVED_REDIRECT=NOT_EXECUTED`; `DIRECT_ARCHIVED_LOGIN=NOT_EXECUTED`
+
+## UX frontend da experiência de agendamentos do cliente (dda5368 — commit local, ainda NÃO pushado)
+
+Ciclo "Customer Appointment Experience": backend **somente testes** (production code intocado) + frontend `CustomerAppointments.tsx` reescrito e `professional/[slug]/page.tsx` ajustado. Commit local `dda5368` (exatamente 5 arquivos, 1421+/490-). **AINDA NÃO pushado, AINDA NÃO deployado, SEM production smoke.**
+
+### Contrato backend (comportamento preexistente, agora travado por testes)
+- `PATCH /appointments/:id/cancel-public` — body EXATAMENTE `{ phone }` (campo extra, ex. `reason` → 400 via ValidationPipe global).
+- Ordem de validação em `cancelPublic()`: 1) `findUnique` (sem customer → 404 `'Agendamento não encontrado.'`); 2) telefone informado ≠ telefone do cliente (comparação normalizada) → 404 `'Agendamento não encontrado para este telefone.'`; 3) status fora de [PENDING, CONFIRMED] → 400 `'Este agendamento não pode mais ser cancelado.'`; 4) `date <= now` → 400 `'Não é possível cancelar um agendamento que já iniciou.'`.
+- Sucesso = UMA única escrita: `{ status: CANCELLED, cancelledBy: CUSTOMER, cancellationReason: null, cancelledAt: new Date() }`. A resposta NÃO tem include (shape diferente do by-phone) → o frontend deve **refazer a busca**, nunca montar card pela resposta do cancel.
+- `GET /appointments/by-phone` (público, inalterado): normaliza dígitos; `< 10` dígitos → 400 `'Telefone inválido.'`; match por OR [normalizado, local, `55`+local, endsWith local]; sem match → 404 `'Nenhum cliente encontrado para este telefone.'`; default `take 50`/`skip 0`; `orderBy { date: 'desc' }`; `professionalId` opcional (ausente → todos os profissionais).
+- **Lifecycle intencional**: agendamentos existentes de profissionais SUSPENDED ou ARCHIVED continuam consultáveis **e canceláveis** nestes endpoints (sem bloqueio de lifecycle — consistente com as seções de 78bd46e/b2f6377).
+
+### UX do componente (`CustomerAppointments.tsx` reescrito)
+- **Tabs Próximos (default)/Histórico** exibidas após a busca: Próximos = PENDING/CONFIRMED futuros asc; Histórico = terminais + passados desc (`hasHappened` por `getTime() <= Date.now()`).
+- **Labels amigáveis** (nunca enum cru): PENDING "Aguardando confirmação", CONFIRMED "Confirmado", CANCELLED "Cancelado por você"/"Cancelado pelo profissional"/"Cancelado" (fallback), COMPLETED "Concluído", NO_SHOW "Não compareceu"; hint "O horário já passou." para PENDING/CONFIRMED passados.
+- **Matriz de ação**: apenas PENDING/CONFIRMED futuros têm botão Cancelar; terminais e passados são somente leitura.
+- **AlertDialog controlado** para cancelar (título "Cancelar agendamento?", botões Voltar / "Cancelar agendamento" destructive; `e.preventDefault()` na ação mantém o diálogo aberto durante pending/erro; fecha apenas no sucesso). Cliente **não** informa motivo (o contrato não aceita).
+- **Double-submit guard** `useRef<Set<string>>` liberado em `finally`; **target isolation** — o alvo é travado na abertura do diálogo (mudar alvo entre abrir e confirmar envia o id correto).
+- **Response authority via refetch**: sucesso → `toast.success('Agendamento cancelado.')` + fecha + refetch do by-phone; **zero optimistic UI** (nenhum label local alterado durante pending).
+- **Refetch pode falhar** após PATCH 200: sucesso é reconhecido, estado não mente, recuperação por nova busca — coberto por teste.
+- **Allowlist de mensagens**: apenas as 4 mensagens do contrato de cancel são refletidas; desconhecida → fallback "Algo deu errado. Tente novamente."; 429 → "Muitas tentativas. Aguarde um momento e tente novamente."; 5xx/rede → retry amigável.
+- **Privacidade**: o fluxo novo **nunca** escreve telefone na URL (zero PII); o legado `/agendamentos?phone=...&confirmed=1` continua **apenas leitura** (banner só com `confirmed=1`; effect busca com telefone sozinho — alinhado ao HEAD).
+- Bloco "Motivo informado" exibido **somente** quando `cancelledBy=PROFESSIONAL`.
+- Feedback de busca inline `role="status"`; empty states: "Nenhum agendamento encontrado." (busca) e por tab ("Nenhum próximo agendamento."/"Nenhum agendamento no histórico.").
+- **Mobile**: cards empilhados, tabs com wrap.
+
+### Ajustes em `professional/[slug]/page.tsx`
+- `alert()` do booking flow → `toast.error()` (sonner) com allowlist das 11 mensagens do contrato de criação + fallback; 409 continua limpando o slot selecionado.
+- CTA "Ver meus agendamentos" foca o campo de busca.
+- `onRebook` preservado mas sem UI — **reagendamento é backlog** (ciclo futuro separado).
+
+### Quality review (66 itens) — verdict PASS
+7 findings (2 MEDIUM + 5 LOW) todos corrigidos antes do commit: bloco de motivo restaurado; refetch-failure coberto por teste; efeito legado alinhado ao HEAD; prefill de `initialPhone`; asserção de diálogo fechado; anti-optimistic reforçada; stale target isolado.
+
+### Testes
+- Backend: `cancel-public.spec.ts` (novo) **21/21** — escrita única + metadata, formato equivalente `55`+DDD, telefone errado/inexistente/sem customer → 404, passado e fronteira `date === now` → 400, terminais → 400, cancelamento repetido não reescreve, SUSPENDED/ARCHIVED canceláveis, campo extra → 400, phone vazio → 400, by-phone (404, normalização OR, orderBy/take/skip, multi-profissional). Backend total **319/319 (23 suítes)**; appointments-related 116/116 (6 suítes).
+- Frontend: `customer-appointments.test.tsx` (novo) **39/39** — inclui motivo de Professional, stale target, PATCH 200 + refetch 500. Frontend total **260/260 (11 suítes)**; `npm run build` PASS. Combinações verificadas: customer+public 52/52; interceptor+customer 64/64 em ambas as ordens.
 
 ## Banco de Dados (PostgreSQL + Prisma 6)
 
@@ -376,7 +413,12 @@ exclusão apenas de finalizados, cancelamento público com validação de telefo
 ```
 /agendamentos → CustomerAppointments → GET /appointments/by-phone?phone=
 → retorna appointments com customer, service, professional includes
-→ PATCH /appointments/:id/cancel-public → cancela se phone válido + status PENDING/CONFIRMED
+→ tabs Próximos (PENDING/CONFIRMED futuros asc) / Histórico (terminais + passados desc)
+→ PATCH /appointments/:id/cancel-public (body exatamente { phone })
+→ cancela se telefone equivalente + status PENDING/CONFIRMED + data futura
+→ sucesso: metadata (cancelledBy=CUSTOMER, cancelledAt) em escrita única → frontend REFAZ a busca
+→ cancelamento via AlertDialog; labels amigáveis; zero PII na URL no fluxo novo
+→ detalhe completo: seção "UX frontend da experiência de agendamentos do cliente"
 ```
 
 ### 5. Backoffice ADMIN — read-only (desde 2026-10-16, f420ac0)

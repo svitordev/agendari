@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## 2026-11-02 — Customer Appointment Experience: UX pública de consulta/cancelamento + suíte backend (commit `dda5368` — commit local, AINDA NÃO pushado)
+
+**Escopo:** ciclo completo implementação → quality review → commit funcional. Backend **somente testes** (production code intocado). Frontend: `CustomerAppointments.tsx` reescrito + `professional/[slug]/page.tsx` (alerts → toast). Commit `dda5368` com exatamente 5 arquivos (1421 inserções / 490 deleções). **AINDA NÃO pushado, AINDA NÃO deployado, SEM production smoke.**
+
+**Backend (testes apenas — comportamento já existente documentado e travado por testes):**
+- `cancel-public.spec.ts` (novo, 21 testes): sucesso PENDING/CONFIRMED futuros com escrita única e metadata completa (`cancelledBy=CUSTOMER`, `cancellationReason=null`, `cancelledAt`); telefone equivalente (`55`+DDD) aceita; telefone errado → 404; inexistente → 404; sem customer → 404; passado → 400; fronteira `date === now` → 400; CANCELLED/COMPLETED/NO_SHOW → 400; cancelamento repetido não reescreve; SUSPENDED/ARCHIVED canceláveis (lifecycle intencional); campo extra (`reason`) → 400; phone vazio → 400; by-phone: 404 sem match, normalização OR, `orderBy desc` + `take 50`/`skip 0`, multi-profissional.
+- Contratos confirmados: body do cancel EXATAMENTE `{ phone }`; resposta do cancel NÃO tem include (shape diferente do by-phone) → frontend deve refazer a busca, nunca montar card pela resposta.
+
+**Frontend (`CustomerAppointments.tsx` reescrito):**
+- Tabs **Próximos** (default)/**Histórico** após a busca: Próximos = PENDING/CONFIRMED futuros asc; Histórico = terminais + passados desc.
+- Labels amigáveis (nunca enum cru): PENDING "Aguardando confirmação", CONFIRMED "Confirmado", CANCELLED "Cancelado por você"/"Cancelado pelo profissional"/"Cancelado" (fallback), COMPLETED "Concluído", NO_SHOW "Não compareceu"; hint "O horário já passou." para PENDING/CONFIRMED passados.
+- Cancelamento via AlertDialog controlado (Voltar/Cancelar agendamento destructive; `preventDefault` mantém o diálogo aberto durante pending/erro; fecha no sucesso).
+- Double-submit guard (`useRef<Set<string>>`), target isolation (alvo travado na abertura), response authority via **refetch** do by-phone após sucesso — zero optimistic.
+- Bloco "Motivo informado" exibido SOMENTE quando `cancelledBy=PROFESSIONAL` (restaurado no review — decisão D do plano).
+- Feedback de busca inline `role="status"`; empty states amigáveis por tab.
+- Novo fluxo NUNCA escreve telefone na URL (zero PII); legado `/agendamentos?phone=...&confirmed=1` continua apenas leitura.
+- Allowlist de mensagens do contrato; mensagem desconhecida → fallback seguro; 429 → "Muitas tentativas. Aguarde um momento e tente novamente."; 5xx/network → retry amigável.
+- Mobile: cards empilhados, tabs com wrap.
+
+**Frontend (`professional/[slug]/page.tsx`):**
+- `alert()` do booking flow → `toast.error()` (sonner) com allowlist de mensagens do contrato de criação + fallback; 409 continua limpando o slot selecionado.
+- CTA "Ver meus agendamentos" foca o campo de busca.
+- `onRebook` preservado mas sem UI — **reagendamento é backlog** (ciclo futuro separado).
+
+**Quality review (66 itens) — verdict PASS:** 7 findings (2 MEDIUM + 5 LOW) todos corrigidos antes do commit: bloco de motivo restaurado; refetch-failure coberto por teste; efeito legado alinhado ao HEAD; prefill de `initialPhone`; asserção de diálogo fechado; anti-optimistic reforçada; stale target isolado.
+
+**Testes (números validados):**
+- Backend: `cancel-public.spec.ts` 21/21 · appointments-related 116/116 (6 suítes) · total **319/319 (23 suítes)**.
+- Frontend: `customer-appointments.test.tsx` 39/39 · `public-profile-suspension.test.tsx` 13/13 · customer+public 52/52 · interceptor+customer 64/64 em ambas as ordens · total **260/260 (11 suítes)** · `npm run build` PASS.
+
+**Estado:** commit local `dda5368` em `main` (não pushado). Próximo passo: commit documental → push do par → deploy Vercel → safe smoke sem cancelar appointment real.
+
+---
+
 ## 2026-10-30 — Fechamento de produção: Professional Appointment Management (cycle closed)
 
 - **Publicados**: `58787cb` (frontend UX) + `01e0979` (docs) pushados para origin/main; frontend deployado no Vercel e confirmado com a UI nova (tabs, filtro de status, botão Atualizar, AlertDialogs — zero native confirm)

@@ -399,6 +399,16 @@ Then: Retorna 400 Bad Request
 - Motivo de cancelamento: obrigatório, trim, maxLength 500, whitespace-only inválido, isolado por appointment (não vaza entre diálogos); zero window.confirm/window.alert/prompt() na área de appointments
 - Pushado, deployado no Vercel e validado por safe smoke em produção (2026-10-30): zero writes (PATCH=0, DELETE appointment=0, DELETE cleanup=0, POST=0, cancel-public=0); AlertDialogs de Excluir e "Limpar finalizados" abertos e CANCELADOS; no PII/credential exposure; logout final com localStorage limpo; console sem erros da aplicação
 
+### 2026-11-02 — Customer Appointment Experience (commit `dda5368` — commit local, AINDA NÃO pushado)
+- Backend **somente testes** (production code intocado): suíte nova `cancel-public.spec.ts` 21/21 trava o contrato existente de `cancelPublic`/`findByPhone` (escrita única + metadata, normalização de telefone, 400/404 por contrato, cancelamento repetido não reescreve, terminais não canceláveis, SUSPENDED/ARCHIVED canceláveis — lifecycle intencional, sem bloqueio nesses endpoints)
+- Frontend `CustomerAppointments.tsx` reescrito: tabs Próximos/Histórico, labels amigáveis, AlertDialog com double-submit guard e target isolation, **response authority via refetch** (zero optimistic), allowlist de mensagens do contrato + fallback seguro, 429 tratado, 5xx/rede com retry
+- **Privacidade**: o fluxo novo **nunca** escreve telefone na URL (zero PII); a rota legada `/agendamentos?phone=...&confirmed=1` continua apenas leitura
+- **Risco residual confirmado**: telefone continua sendo o ÚNICO prova de posse em by-phone/cancel-public — risco MÉDIO conhecido do MVP (PROJETO.md A5), **não resolvido completamente** por este ciclo
+- Mitigações em vigor: throttling (appointments 30/min — SEC-002), normalização estrita, allowlist de mensagens, zero optimistic, refetch como autoridade, double-submit guard, 429 amigável, histórico de suspensos/arquivados preservado de forma consistente
+- Backlog de segurança (futuro, não implementado neste ciclo): OTP/token para prova de posse de telefone, token/link secreto por agendamento, autenticação mais forte para o autosserviço do cliente, redução de enumeração, reagendamento
+- Testes: backend total **319/319 (23 suítes)**; frontend total **260/260 (11 suítes)**; `npm run build` PASS
+- Estado: commit local `dda5368` — push, deploy Vercel e production smoke PENDENTES (a fazer após o commit documental)
+
 ### 2026-10-29 - Backend: hardening da state machine de status pelo Professional (commit 45526f9)
 - Tenant boundary server-side mantido: `professionalId` vem SOMENTE da sessão/JWT — nunca controlável pelo body; cross-tenant → 404 (sem existence leak); ADMIN sem Professional permanece 400 "Profissional não identificado."
 - CAS anti lost-update: `updateMany` condicional com `id` + `professionalId` + status anterior lido do banco; count=0 → re-check por id+professionalId; operação stale → 409 "O agendamento foi alterado por outra operação. Atualize e tente novamente."; sem segunda write em corrida
