@@ -20,6 +20,12 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+const mockToastError = vi.hoisted(() => vi.fn());
+
+vi.mock('sonner', () => ({
+  toast: { error: mockToastError, success: vi.fn() },
+}));
+
 import api from '@/lib/api';
 import ProfessionalPage from '@/app/professional/[slug]/page';
 
@@ -153,7 +159,9 @@ describe('/professional/[slug] — conta suspensa', () => {
       clientName: 'Cliente Teste',
       clientWhats: '81988888888',
     });
+    // Feedback sem native alert: sucesso não dispara toast de erro.
     expect(alertMock).not.toHaveBeenCalled();
+    expect(mockToastError).not.toHaveBeenCalled();
   });
 
   it('SUSPENDED mantém o perfil visível com o aviso exato', async () => {
@@ -217,8 +225,10 @@ describe('/professional/[slug] — conta suspensa', () => {
     const cta = await fillEverythingAndTryBooking();
     fireEvent.click(cta);
     await vi.waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1));
+    // Feedback inline/toast — nenhum native alert é usado no fluxo.
+    expect(alertMock).not.toHaveBeenCalled();
     await vi.waitFor(() =>
-      expect(alertMock).toHaveBeenCalledWith(
+      expect(mockToastError).toHaveBeenCalledWith(
         'Este profissional não está aceitando novos agendamentos no momento.',
       ),
     );

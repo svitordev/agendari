@@ -1,581 +1,426 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-
-import { format, isValid } from "date-fns";
-
-import { CalendarPlus, MessageCircle } from "lucide-react";
-
+import { useCallback, useEffect, useRef, useState } from "react";
+import { format, addMinutes, isAfter } from "date-fns";
 import api from "@/lib/api";
-
-import { Badge } from "@/components/ui/badge";
-
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import { Input } from "@/components/ui/input";
-
-type AppointmentStatus =
-  | "PENDING"
-  | "CONFIRMED"
-  | "CANCELLED"
-  | "COMPLETED"
-  | "NO_SHOW";
-
-type CancelledBy = "PROFESSIONAL" | "CUSTOMER";
-
-type Appointment = {
+interface AppointmentRow {
   id: string;
   date: string;
-  status: AppointmentStatus;
-
+  status: string;
   cancellationReason?: string | null;
-  cancelledBy?: CancelledBy | null;
-  cancelledAt?: string | null;
+  cancelledBy?: string | null;
+  customer?: { name: string; phone: string } | null;
+  service?: { name: string; durationMinutes: number; price: number } | null;
+  professional?: { name: string; slug?: string; whatsapp?: string | null } | null;
+}
 
-  customer?: {
-    id: string;
-    name: string;
-    phone: string;
-  };
-
-  service?: {
-    id: string;
-    name: string;
-    durationMinutes: number;
-    price: number;
-  };
-
-  professional?: {
-    id: string;
-    name: string;
-    slug?: string;
-    whatsapp?: string | null;
-  };
-};
-
-type Props = {
+interface CustomerAppointmentsProps {
   professionalId?: string;
-
   initialPhone?: string;
-
-  /*
-   * Incrementar esse número força
-   * uma nova busca mesmo que o telefone
-   * seja o mesmo.
-   */
   refreshKey?: number;
-
   bookingConfirmed?: boolean;
-
   primaryColor?: string;
-
-  /*
-   * Usado apenas pela página /agendamentos
-   * para manter compatibilidade com:
-   *
-   * ?phone=...&confirmed=1
-   */
   readQueryParams?: boolean;
-
-  /*
-   * Dentro da página do profissional,
-   * podemos rolar para o formulário
-   * em vez de navegar.
-   */
   onRebook?: () => void;
+}
+
+type Tab = "proximos" | "historico";
+
+/* Labels amigáveis PT-BR — o enum cru nunca aparece na UI. */
+const STATUS_LABELS: Record<string, string> = {
+  PENDING: "Aguardando confirmação",
+  CONFIRMED: "Confirmado",
+  CANCELLED: "Cancelado",
+  COMPLETED: "Concluído",
+  NO_SHOW: "Não compareceu",
 };
 
-const statusConfig = {
-  PENDING: {
-    label: "Pendente",
-    variant: "secondary" as const,
-  },
+function statusLabel(appt: AppointmentRow): string {
+  if (appt.status === "CANCELLED") {
+    if (appt.cancelledBy === "CUSTOMER") return "Cancelado por você";
+    if (appt.cancelledBy === "PROFESSIONAL") return "Cancelado pelo profissional";
+    return "Cancelado";
+  }
+  return STATUS_LABELS[appt.status] ?? "Status indisponível";
+}
 
-  CONFIRMED: {
-    label: "Confirmado",
-    variant: "default" as const,
-  },
+/* Mensagens do contrato de cancel-public que podem ser refletidas na UI. */
+const ALLOWED_CANCEL_MESSAGES = new Set([
+  "Este agendamento não pode mais ser cancelado.",
+  "Não é possível cancelar um agendamento que já iniciou.",
+  "Agendamento não encontrado.",
+  "Agendamento não encontrado para este telefone.",
+]);
 
-  CANCELLED: {
-    label: "Cancelado",
-    variant: "destructive" as const,
-  },
+/* Mensagens do contrato de busca que podem ser refletidas na UI. */
+const ALLOWED_SEARCH_MESSAGES = new Set(["Telefone inválido."]);
 
-  COMPLETED: {
-    label: "Concluído",
-    variant: "outline" as const,
-  },
+const FRIENDLY_EMPTY = "Nenhum agendamento encontrado.";
+const TOO_MANY_REQUESTS = "Muitas tentativas. Aguarde um momento e tente novamente.";
+const SAFE_FALLBACK = "Algo deu errado. Tente novamente.";
+const SEARCH_EMPTY_MESSAGE = "Digite um número de WhatsApp para buscar seus agendamentos.";
 
-  NO_SHOW: {
-    label: "Não compareceu",
-    variant: "outline" as const,
-  },
-};
-
-function normalizePhone(phone: string) {
+function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
 }
 
-function formatWhatsAppLink(phone: string, message?: string) {
-  const clean = normalizePhone(phone);
-
-  const normalized = clean.startsWith("55") ? clean : `55${clean}`;
-
-  const text = message ? `?text=${encodeURIComponent(message)}` : "";
-
-  return `https://wa.me/${normalized}${text}`;
+function getAppointmentEnd(appt: AppointmentRow): Date | null {
+  if (!appt.service?.durationMinutes) return null;
+  const start = new Date(appt.date);
+  if (isNaN(start.getTime())) return null;
+  return addMinutes(start, appt.service.durationMinutes);
 }
 
-function getAppointmentEnd(appointment: Appointment) {
-  const start = new Date(appointment.date);
-
-  if (!isValid(start)) {
-    return null;
-  }
-
-  const duration = appointment.service?.durationMinutes ?? 0;
-
-  return new Date(start.getTime() + duration * 60 * 1000);
-}
-
-function formatAppointmentTime(appointment: Appointment) {
-  const start = new Date(appointment.date);
-
-  if (!isValid(start)) {
+function formatAppointmentTime(appt: AppointmentRow): string {
+  const start = new Date(appt.date);
+  if (isNaN(start.getTime())) {
     return "Data inválida";
   }
-
-  const end = getAppointmentEnd(appointment);
-
+  const dateStr = format(start, "dd/MM/yyyy");
+  const timeStr = format(start, "HH:mm");
+  const end = getAppointmentEnd(appt);
   if (!end) {
-    return format(start, "dd/MM/yyyy 'às' HH:mm");
+    return `${dateStr} às ${timeStr}`;
   }
+  return `${dateStr} ${timeStr} - ${format(end, "HH:mm")}`;
+}
 
-  return `${format(start, "dd/MM/yyyy 'às' HH:mm")} - ${format(end, "HH:mm")}`;
+/* Mesma semântica de timing do backend (date <= now = já ocorreu) —
+ * usada APENAS para decidir tab e controles; o backend é a autoridade. */
+function hasHappened(appt: AppointmentRow): boolean {
+  const d = new Date(appt.date);
+  return !isNaN(d.getTime()) && !isAfter(d, new Date());
+}
+
+function isTerminal(status: string): boolean {
+  return status === "CANCELLED" || status === "COMPLETED" || status === "NO_SHOW";
+}
+
+function canCancel(appt: AppointmentRow): boolean {
+  return (appt.status === "PENDING" || appt.status === "CONFIRMED") && !hasHappened(appt);
+}
+
+function friendlyApiError(err: unknown, allowed: Set<string>, fallback: string): string {
+  const e = err as { response?: { status?: number; data?: { message?: string | string[] } } };
+  const status = e?.response?.status;
+  if (status === 429) return TOO_MANY_REQUESTS;
+  const message = e?.response?.data?.message;
+  if (typeof message === "string" && allowed.has(message)) return message;
+  return fallback;
 }
 
 export default function CustomerAppointments({
   professionalId,
   initialPhone,
-  refreshKey = 0,
-  bookingConfirmed = false,
-  primaryColor = "#2563eb",
-  readQueryParams = false,
+  refreshKey,
+  bookingConfirmed,
+  primaryColor,
+  readQueryParams,
   onRebook,
-}: Props) {
-  const [phone, setPhone] = useState(initialPhone ?? "");
-
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-
+}: CustomerAppointmentsProps) {
+  const [phone, setPhone] = useState("");
+  const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [loading, setLoading] = useState(false);
-
+  const [searched, setSearched] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("proximos");
+  const [dialogId, setDialogId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
-
-  const [error, setError] = useState("");
-
   const [confirmedFromQuery, setConfirmedFromQuery] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const pendingRef = useRef<Set<string>>(new Set());
 
-  const fetchAppointmentsByPhone = useCallback(
-    async (phoneToSearch: string) => {
-      const normalizedPhone = normalizePhone(phoneToSearch);
+  const accent = primaryColor ?? "#111827";
 
-      if (normalizedPhone.length < 10) {
-        setError("Informe um WhatsApp válido.");
-
-        return;
-      }
-
+  const fetchAppointments = useCallback(
+    async (digits: string) => {
       setLoading(true);
-      setError("");
-
       try {
-        const response = await api.get<Appointment[]>(
-          "/appointments/by-phone",
-          {
-            params: {
-              phone: normalizedPhone,
-
-              ...(professionalId
-                ? {
-                    professionalId,
-                  }
-                : {}),
-            },
-          },
-        );
-
-        const now = new Date();
-
-        const visible = (response.data ?? []).filter((appointment) => {
-          const end = getAppointmentEnd(appointment);
-
-          if (!end) {
-            return false;
-          }
-
-          /*
-           * Concluídos e ausência não
-           * precisam aparecer nesta tela.
-           */
-          if (
-            appointment.status === "COMPLETED" ||
-            appointment.status === "NO_SHOW"
-          ) {
-            return false;
-          }
-
-          /*
-           * Cancelado pelo próprio cliente:
-           * não mostramos.
-           */
-          if (
-            appointment.status === "CANCELLED" &&
-            appointment.cancelledBy !== "PROFESSIONAL"
-          ) {
-            return false;
-          }
-
-          /*
-           * Ativos ou cancelados pelo
-           * profissional permanecem
-           * visíveis até passar o
-           * horário original.
-           */
-          return end >= now;
-        });
-
-        setAppointments(visible);
-
-        if (visible.length === 0) {
-          setError("Nenhum agendamento futuro encontrado para este WhatsApp.");
+        const params: { phone: string; professionalId?: string } = { phone: digits };
+        if (professionalId) params.professionalId = professionalId;
+        const res = await api.get("/appointments/by-phone", { params });
+        const rows: AppointmentRow[] = Array.isArray(res.data) ? res.data : [];
+        setAppointments(rows);
+        setFeedback(rows.length === 0 ? FRIENDLY_EMPTY : null);
+      } catch (err) {
+        const e = err as { response?: { status?: number } };
+        if (e?.response?.status === 404) {
+          // Nenhum cliente para este telefone — empty state amigável, não erro crítico.
+          setAppointments([]);
+          setFeedback(FRIENDLY_EMPTY);
+        } else {
+          setAppointments([]);
+          setFeedback(friendlyApiError(err, ALLOWED_SEARCH_MESSAGES, SAFE_FALLBACK));
         }
-      } catch (err: any) {
-        console.error("Erro ao buscar agendamentos:", err);
-
-        setAppointments([]);
-
-        const message = err.response?.data?.message;
-
-        setError(
-          Array.isArray(message)
-            ? message.join(", ")
-            : (message ?? "Nenhum agendamento encontrado."),
-        );
       } finally {
         setLoading(false);
+        setSearched(true);
       }
     },
     [professionalId],
   );
 
-  /*
-   * Compatibilidade com /agendamentos?phone=...
-   */
+  // Compatibilidade com o link legado /agendamentos?phone=...&confirmed=1
   useEffect(() => {
-    if (!readQueryParams) {
-      return;
-    }
+    if (!readQueryParams) return;
+    const params = new URLSearchParams(window.location.search);
+    const qPhone = params.get("phone");
+    if (!qPhone) return;
+    if (params.get("confirmed") === "1") setConfirmedFromQuery(true);
+    setPhone(qPhone);
+    void fetchAppointments(normalizePhone(qPhone));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readQueryParams]);
 
-    const query = new URLSearchParams(window.location.search);
-
-    const phoneFromUrl = query.get("phone");
-
-    const confirmed = query.get("confirmed") === "1";
-
-    setConfirmedFromQuery(confirmed);
-
-    if (phoneFromUrl) {
-      setPhone(phoneFromUrl);
-
-      fetchAppointmentsByPhone(phoneFromUrl);
-    }
-  }, [readQueryParams, fetchAppointmentsByPhone]);
-
-  /*
-   * Quando um agendamento acaba
-   * de ser criado na página do
-   * profissional.
-   */
+  // Integração com a página do Professional: busca automática pós-agendamento.
   useEffect(() => {
-    if (!initialPhone) {
-      return;
-    }
-
+    if (!initialPhone) return;
     setPhone(initialPhone);
+    if (refreshKey) void fetchAppointments(normalizePhone(initialPhone));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey, initialPhone]);
 
-    if (refreshKey > 0) {
-      fetchAppointmentsByPhone(initialPhone);
+  const handleSearch = async () => {
+    const digits = normalizePhone(phone);
+    if (digits.length < 10) {
+      setFeedback("Informe um WhatsApp válido.");
+      return;
     }
-  }, [initialPhone, refreshKey, fetchAppointmentsByPhone]);
-
-  const search = async () => {
-    await fetchAppointmentsByPhone(phone);
+    await fetchAppointments(digits);
   };
 
-  const cancel = async (id: string) => {
-    if (!window.confirm("Deseja realmente cancelar este agendamento?")) {
-      return;
-    }
-
-    const normalizedPhone = normalizePhone(phone);
-
-    setCancellingId(id);
-
+  const runCancel = async (appt: AppointmentRow) => {
+    if (pendingRef.current.has(appt.id)) return; // double-submit guard
+    pendingRef.current.add(appt.id);
+    setCancellingId(appt.id);
+    const digits = normalizePhone(phone);
     try {
-      await api.patch(`/appointments/${id}/cancel-public`, {
-        phone: normalizedPhone,
-      });
-
-      setAppointments((current) =>
-        current.filter((appointment) => appointment.id !== id),
-      );
-
-      alert("Agendamento cancelado com sucesso.");
-    } catch (err: any) {
-      const message = err.response?.data?.message;
-
-      alert(
-        Array.isArray(message)
-          ? message.join("\n")
-          : (message ?? "Não foi possível cancelar o agendamento."),
-      );
+      // Body EXATAMENTE { phone } — reason é exclusivo do fluxo autenticado.
+      await api.patch(`/appointments/${appt.id}/cancel-public`, { phone: digits });
+      toast.success("Agendamento cancelado.");
+      setDialogId(null);
+      // Response authority: o card NUNCA é montado a partir da resposta do
+      // cancelamento — a view é reconstruída pelo refetch do by-phone.
+      await fetchAppointments(digits);
+    } catch (err) {
+      toast.error(friendlyApiError(err, ALLOWED_CANCEL_MESSAGES, SAFE_FALLBACK));
+      // O dialog permanece aberto para permitir retry e a view é
+      // ressincronizada com a autoridade do backend.
+      await fetchAppointments(digits);
     } finally {
+      pendingRef.current.delete(appt.id);
       setCancellingId(null);
     }
   };
 
-  const clearSearch = () => {
-    setAppointments([]);
+  const proximos = appointments
+    .filter((a) => (a.status === "PENDING" || a.status === "CONFIRMED") && !hasHappened(a))
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const historico = appointments
+    .filter((a) => isTerminal(a.status) || hasHappened(a))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    setPhone("");
+  const visible = tab === "proximos" ? proximos : historico;
+  const dialogAppt = dialogId ? appointments.find((a) => a.id === dialogId) ?? null : null;
 
-    setError("");
-
-    setConfirmedFromQuery(false);
-
-    if (readQueryParams) {
-      window.history.replaceState({}, "", "/agendamentos");
-    }
-  };
-
-  const showConfirmation = bookingConfirmed || confirmedFromQuery;
+  const emptyMessage =
+    tab === "proximos" ? "Nenhum próximo agendamento." : "Nenhum agendamento no histórico.";
 
   return (
     <div className="space-y-4">
-      {showConfirmation && (
-        <div className="rounded-xl border border-green-200 bg-green-50 p-4">
-          <p className="font-semibold text-green-800">
+      {(bookingConfirmed || confirmedFromQuery) && (
+        <div
+          className="rounded-lg border p-4"
+          style={{
+            borderColor: accent,
+            backgroundColor: `${accent}10`,
+          }}
+        >
+          <p className="font-medium" style={{ color: accent }}>
             Agendamento realizado com sucesso!
           </p>
-
-          <p className="mt-1 text-sm text-green-700">
-            Seu pedido foi enviado ao profissional. Acompanhe o status abaixo.
+          <p className="mt-1 text-sm text-muted-foreground">
+            Busque pelo seu número de WhatsApp para ver seus agendamentos e acompanhar
+            confirmações ou cancelamentos.
           </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-3"
+            onClick={() => inputRef.current?.focus()}
+          >
+            Ver meus agendamentos
+          </Button>
         </div>
       )}
 
-      <Card className="shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Meus agendamentos</CardTitle>
-
-          <p className="text-sm text-gray-500">
-            Informe o WhatsApp utilizado no agendamento.
-          </p>
         </CardHeader>
-
         <CardContent className="space-y-4">
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input
-              type="tel"
-              placeholder="WhatsApp (ex.: 81999999999)"
+              ref={inputRef}
+              placeholder="Telefone com DDD (ex: 11 99999-0000)"
               value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  search();
-                }
-              }}
+              onChange={(e) => setPhone(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void handleSearch()}
             />
-
             <Button
-              type="button"
-              disabled={loading || !phone.trim()}
-              onClick={search}
-              className="w-full text-white hover:opacity-90"
-              style={{
-                backgroundColor: primaryColor,
-              }}
+              onClick={() => void handleSearch()}
+              disabled={loading || !normalizePhone(phone)}
+              className="shrink-0"
             >
               {loading ? "Buscando..." : "Buscar agendamentos"}
             </Button>
           </div>
 
-          {error && (
-            <div className="rounded-lg bg-gray-100 p-3 text-sm text-gray-600">
-              {error}
+          {feedback && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {feedback}
+            </p>
+          )}
+
+          {searched && (
+            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Agendamentos">
+              <Button
+                role="tab"
+                variant={tab === "proximos" ? "default" : "outline"}
+                size="sm"
+                aria-selected={tab === "proximos"}
+                onClick={() => setTab("proximos")}
+              >
+                Próximos
+                {proximos.length > 0 && ` (${proximos.length})`}
+              </Button>
+              <Button
+                role="tab"
+                variant={tab === "historico" ? "default" : "outline"}
+                size="sm"
+                aria-selected={tab === "historico"}
+                onClick={() => setTab("historico")}
+              >
+                Histórico
+                {historico.length > 0 && ` (${historico.length})`}
+              </Button>
             </div>
           )}
 
-          {appointments.length > 0 && (
-            <div className="space-y-4 pt-2">
-              {appointments.map((appointment) => {
-                const status = statusConfig[appointment.status];
+          {!searched && !feedback && (
+            <p className="text-sm text-muted-foreground">{SEARCH_EMPTY_MESSAGE}</p>
+          )}
 
-                const cancelledByProfessional =
-                  appointment.status === "CANCELLED" &&
-                  appointment.cancelledBy === "PROFESSIONAL";
+          {searched && visible.length === 0 && (
+            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          )}
 
-                const canCancel =
-                  appointment.status === "PENDING" ||
-                  appointment.status === "CONFIRMED";
-
-                const professional = appointment.professional;
-
-                const whatsappMessage = `Olá${
-                  professional?.name ? ` ${professional.name}` : ""
-                }! Meu agendamento de ${
-                  appointment.service?.name ?? "serviço"
-                } em ${formatAppointmentTime(
-                  appointment,
-                )} foi cancelado e gostaria de verificar um novo horário.`;
-
-                return (
-                  <div
-                    key={appointment.id}
-                    className={`rounded-xl border p-4 ${
-                      cancelledByProfessional
-                        ? "border-red-200 bg-red-50/50"
-                        : "bg-white"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-gray-900">
-                          {appointment.service?.name ?? "Serviço"}
-                        </p>
-
-                        {professional?.name && (
-                          <p className="mt-0.5 text-sm text-gray-500">
-                            Com {professional.name}
-                          </p>
-                        )}
-                      </div>
-
-                      <Badge variant={status.variant}>
-                        {cancelledByProfessional
-                          ? "Cancelado pelo profissional"
-                          : status.label}
-                      </Badge>
-                    </div>
-
-                    <div className="mt-4 rounded-lg bg-gray-50 p-3">
-                      <p className="text-sm font-medium text-gray-700">
-                        🗓️ {formatAppointmentTime(appointment)}
+          <div className="grid gap-4 md:grid-cols-2">
+            {visible.map((appt) => (
+              <div key={appt.id} data-testid="appointment-card" className="rounded-lg border p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      Com {appt.professional?.name ?? "Profissional"}
+                    </p>
+                    <p className="truncate text-sm text-muted-foreground">
+                      {appt.service?.name ?? "Serviço"}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="shrink-0">
+                    {statusLabel(appt)}
+                  </Badge>
+                </div>
+                <div className="mt-3 space-y-1 text-sm">
+                  <p>
+                    🗓️ {formatAppointmentTime(appt)}
+                  </p>
+                  {appt.service?.durationMinutes && (
+                    <p className="text-muted-foreground">
+                      ⏱️ {appt.service.durationMinutes} minutos
+                    </p>
+                  )}
+                  {appt.service?.price != null && (
+                    <p className="text-muted-foreground">
+                      💰 R$ {Number(appt.service.price).toFixed(2).replace(".", ",")}
+                    </p>
+                  )}
+                  {hasHappened(appt) && (appt.status === "PENDING" || appt.status === "CONFIRMED") && (
+                    <p className="text-muted-foreground italic">O horário já passou.</p>
+                  )}
+                  {appt.status === "CANCELLED" && appt.cancelledBy === "PROFESSIONAL" && (
+                    <div className="mt-2 rounded-lg border border-red-200 p-3">
+                      <p className="text-sm font-semibold text-red-700">Motivo informado</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {appt.cancellationReason ??
+                          "O profissional informou que não poderá realizar este atendimento."}
                       </p>
                     </div>
-
-                    {appointment.service && (
-                      <div className="mt-3 flex flex-wrap gap-3 text-sm text-gray-500">
-                        <span>
-                          ⏱ {appointment.service.durationMinutes} minutos
-                        </span>
-
-                        <span>
-                          {Number(appointment.service.price).toLocaleString(
-                            "pt-BR",
-                            {
-                              style: "currency",
-                              currency: "BRL",
-                            },
-                          )}
-                        </span>
-                      </div>
-                    )}
-
-                    {cancelledByProfessional && (
-                      <div className="mt-4 rounded-lg border border-red-200 bg-white p-3">
-                        <p className="text-sm font-semibold text-red-700">
-                          Motivo informado
-                        </p>
-
-                        <p className="mt-1 text-sm text-gray-700">
-                          {appointment.cancellationReason ??
-                            "O profissional informou que não poderá realizar este atendimento."}
-                        </p>
-                      </div>
-                    )}
-
-                    {canCancel && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="destructive"
-                        disabled={cancellingId === appointment.id}
-                        onClick={() => cancel(appointment.id)}
-                        className="mt-4"
-                      >
-                        {cancellingId === appointment.id
-                          ? "Cancelando..."
-                          : "Cancelar agendamento"}
-                      </Button>
-                    )}
-
-                    {cancelledByProfessional && (
-                      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                        {professional?.slug && (
-                          <Button
-                            type="button"
-                            onClick={() => {
-                              if (onRebook) {
-                                onRebook();
-
-                                return;
-                              }
-
-                              window.location.href = `/professional/${professional.slug}#agendar`;
-                            }}
-                            className="text-white hover:opacity-90"
-                            style={{
-                              backgroundColor: primaryColor,
-                            }}
-                          >
-                            <CalendarPlus className="mr-2 h-4 w-4" />
-                            Agendar novo horário
-                          </Button>
-                        )}
-
-                        {professional?.whatsapp && (
-                          <Button type="button" variant="outline" asChild>
-                            <a
-                              href={formatWhatsAppLink(
-                                professional.whatsapp,
-                                whatsappMessage,
-                              )}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <MessageCircle className="mr-2 h-4 w-4 text-green-600" />
-                              Falar no WhatsApp
-                            </a>
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              <div className="text-center">
-                <Button type="button" variant="ghost" onClick={clearSearch}>
-                  Limpar busca
-                </Button>
+                  )}
+                </div>
+                {canCancel(appt) && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="mt-3"
+                    disabled={cancellingId === appt.id}
+                    onClick={() => setDialogId(appt.id)}
+                  >
+                    Cancelar agendamento
+                  </Button>
+                )}
               </div>
-            </div>
-          )}
+            ))}
+          </div>
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={dialogId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDialogId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar agendamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação só é possível antes do horário agendado e não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={cancellingId !== null}
+              onClick={(e) => {
+                // Impede o auto-close do Radix: o dialog só fecha no sucesso
+                // (setDialogId(null)) — permanece aberto para retry em erro.
+                e.preventDefault();
+                if (dialogAppt) void runCancel(dialogAppt);
+              }}
+            >
+              {cancellingId ? "Cancelando..." : "Cancelar agendamento"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

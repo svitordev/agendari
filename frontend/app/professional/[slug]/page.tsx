@@ -21,6 +21,8 @@ import {
   FaWhatsapp,
 } from 'react-icons/fa';
 
+import { toast } from "sonner";
+
 import api from "@/lib/api";
 
 import type { ProfessionalStatus } from "@/types";
@@ -76,6 +78,25 @@ const DEFAULT_THEME = {
   secondary: "#4F46E5",
   accent: "#7C3AED",
 };
+
+/*
+ * Allowlist das mensagens conhecidas do contrato público de criação
+ * (appointments.service.ts → create). Mensagem desconhecida → fallback
+ * seguro; nenhuma mensagem arbitrária do backend é refletida na UI.
+ */
+const BOOKING_ALLOWED_MESSAGES = new Set([
+  "Data inválida.",
+  "Não é possível agendar em uma data passada.",
+  "Profissional não encontrado.",
+  "Este profissional não está disponível para novos agendamentos.",
+  "Este profissional não está aceitando novos agendamentos no momento.",
+  "Serviço não encontrado ou indisponível.",
+  "O profissional não atende neste dia.",
+  "O serviço não cabe integralmente em um período de atendimento disponível.",
+  "Este horário está bloqueado pelo profissional.",
+  "Este horário já está preenchido.",
+  "WhatsApp inválido.",
+]);
 
 function normalizePhone(phone: string) {
   return phone.replace(/\D/g, "");
@@ -274,25 +295,25 @@ export default function ProfessionalPage({
     }
 
     if (!selectedService) {
-      alert("Selecione um serviço.");
+      toast.error("Selecione um serviço.");
 
       return;
     }
 
     if (!selectedDate) {
-      alert("Selecione uma data.");
+      toast.error("Selecione uma data.");
 
       return;
     }
 
     if (!selectedSlot) {
-      alert("Selecione um horário.");
+      toast.error("Selecione um horário.");
 
       return;
     }
 
     if (!clientName.trim()) {
-      alert("Informe seu nome.");
+      toast.error("Informe seu nome.");
 
       return;
     }
@@ -300,7 +321,7 @@ export default function ProfessionalPage({
     const normalizedWhats = normalizePhone(clientWhats);
 
     if (normalizedWhats.length < 10) {
-      alert("Informe um WhatsApp válido.");
+      toast.error("Informe um WhatsApp válido.");
 
       return;
     }
@@ -346,15 +367,17 @@ export default function ProfessionalPage({
         });
       }, 150);
     } catch (error: any) {
-      const message = error.response?.data?.message;
+      const status = error?.response?.status;
 
-      alert(
-        Array.isArray(message)
-          ? message.join("\n")
-          : (message ?? "Erro ao realizar agendamento."),
+      const message = error?.response?.data?.message;
+
+      toast.error(
+        typeof message === "string" && BOOKING_ALLOWED_MESSAGES.has(message)
+          ? message
+          : "Não foi possível realizar o agendamento. Tente novamente.",
       );
 
-      if (error.response?.status === 409) {
+      if (status === 409) {
         setSelectedSlot("");
       }
     } finally {
